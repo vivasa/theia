@@ -273,6 +273,10 @@ async function createWorkspace(fsRoot: string): Promise<WorkspaceServer> {
 
         async setRoot(uri: string): Promise<void> {
             // NOOP
+        },
+
+        async getRecentlySelectedRoots(): Promise<string[]> {
+            return [];
         }
 
     };

@@ -23,4 +23,10 @@ export interface WorkspaceServer {
      */
     setRoot(uri: string): Promise<void>;
 
+    /**
+     * Returns with an array of recently selected workspace roots. This method does not ensure that the returning root locations valid and point
+     * to existing directories. That is the client's responsibility.
+     */
+    getRecentlySelectedRoots(): Promise<string[]>;
+
 }

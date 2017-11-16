@@ -7,14 +7,15 @@
 
 import * as path from 'path';
 import * as yargs from 'yargs';
-import * as fs from 'fs-extra';
-import * as os from 'os';
 
 import { injectable, inject } from "inversify";
+import URI from '@theia/core/lib/common/uri';
 import { FileUri } from '@theia/core/lib/node';
 import { CliContribution } from '@theia/core/lib/node/cli';
+import { Queue } from '@theia/core/lib/common/queue';
 import { Deferred } from '@theia/core/lib/common/promise-util';
 import { WorkspaceServer } from "../common";
+import { FileSystem, FileStat } from '@theia/filesystem/lib/common';
 
 @injectable()
 export class WorkspaceCliContribution implements CliContribution {
@@ -51,29 +52,32 @@ export class DefaultWorkspaceServer implements WorkspaceServer {
     protected root: Promise<string | undefined>;
 
     constructor(
-        @inject(WorkspaceCliContribution) protected readonly cliParams: WorkspaceCliContribution
+        @inject(WorkspaceCliContribution) protected readonly cliParams: WorkspaceCliContribution,
+        @inject(FileSystem) protected readonly fileSystem: FileSystem
     ) {
         this.root = this.getRootURIFromCli();
         this.root.then(async root => {
             if (!root) {
-                const data = await this.readFromUserHome();
-                if (data && data.recentRoots) {
+                const data = await this.readFromUserStorage();
+                if (data.recentRoots.length > 0) {
                     this.root = Promise.resolve(data.recentRoots[0]);
                 }
             }
         });
     }
 
-    getRoot(): Promise<string | undefined> {
+    async getRoot(): Promise<string | undefined> {
         return this.root;
     }
 
-    setRoot(uri: string): Promise<void> {
+    async setRoot(uri: string): Promise<void> {
         this.root = Promise.resolve(uri);
-        this.writeToUserHome({
-            recentRoots: [uri]
-        });
-        return Promise.resolve();
+        const recentRoots = await this.calculateRecentRoots(uri);
+        await this.writeToUserStorage({ recentRoots });
+    }
+
+    async getRecentlySelectedRoots(): Promise<string[]> {
+        return (await this.readFromUserStorage()).recentRoots;
     }
 
     protected async getRootURIFromCli(): Promise<string | undefined> {
@@ -82,33 +86,57 @@ export class DefaultWorkspaceServer implements WorkspaceServer {
     }
 
     /**
+     * Resolves to a file stat representing the destination resource that can be used to store the workspace related metadata.
+     * If the file does not exist, then returns with its desired location as an URI.
+     */
+    protected async getUserStorage(): Promise<FileStat | string> {
+        const userHome = await this.fileSystem.getCurrentUserHome();
+        const uri = new URI(userHome.uri).resolve('.theia').resolve('recentworkspace.json');
+        if (this.fileSystem.exists(uri.toString())) {
+            return this.fileSystem.getFileStat(uri.toString());
+        }
+        return uri.toString();
+    }
+
+    /**
      * Writes the given uri as the most recently used workspace root to the user's home directory.
      * @param uri most recently used uri
      */
-    private async writeToUserHome(data: WorkspaceData): Promise<void> {
-        const file = this.getUserStoragePath();
-        if (!await fs.pathExists(file)) {
-            await fs.mkdirs(path.resolve(file, '..'));
+    private async writeToUserStorage(data: WorkspaceData): Promise<void> {
+        const content = JSON.stringify(data);
+        const userStorage = await this.getUserStorage();
+        if (typeof userStorage === 'string') {
+            await this.fileSystem.createFile(userStorage, { content });
+        } else {
+            await this.fileSystem.setContent(userStorage, JSON.stringify(data));
         }
-        await fs.writeJson(file, data);
     }
 
     /**
      * Reads the most recently used workspace root from the user's home directory.
      */
-    private async readFromUserHome(): Promise<WorkspaceData | undefined> {
-        const file = this.getUserStoragePath();
-        if (await fs.pathExists(file)) {
-            const config = await fs.readJson(file);
+    private async readFromUserStorage(): Promise<WorkspaceData> {
+        const userStorage = await this.getUserStorage();
+        if (typeof userStorage !== 'string') {
+            const config = await this.fileSystem.resolveContent(userStorage.uri);
             if (WorkspaceData.is(config)) {
                 return config;
             }
         }
-        return undefined;
+        return { recentRoots: [] };
     }
 
-    protected getUserStoragePath(): string {
-        return path.resolve(os.homedir(), '.theia', 'recentworkspace.json');
+    /**
+     * Gets the recently opened workspace roots and updates it with the argument.
+     */
+    private async calculateRecentRoots(uri: string): Promise<string[]> {
+        const recentRoots = await this.getRecentlySelectedRoots();
+        const queue = new Queue({
+            maxSize: 5,
+            equivalent: (left: string, right: string) => left === right
+        });
+        queue.push(...recentRoots.reverse(), uri);
+        return queue.items.reverse();
     }
 
 }
