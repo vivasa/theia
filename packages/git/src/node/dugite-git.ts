@@ -125,9 +125,10 @@ export class DugiteGit implements Git {
         return repositories;
     }
 
-    async status(repository: Repository): Promise<WorkingDirectoryStatus> {
+    async status(repository: Repository, options?: Git.Options.Status): Promise<WorkingDirectoryStatus> {
         const repositoryPath = this.getFsPath(repository);
-        const dugiteStatus = await getStatus(repositoryPath);
+        const limit = options && options.limit && Number.isInteger(options.limit) && options.limit > 0 ? options.limit : Number.MAX_SAFE_INTEGER;
+        const dugiteStatus = await getStatus(repositoryPath, limit);
         return this.mapStatus(dugiteStatus, repository);
     }
 

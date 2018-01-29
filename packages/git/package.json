@@ -9,7 +9,7 @@
     "@theia/preferences-api": "^0.3.2",
     "@theia/workspace": "^0.3.2",
     "@types/fs-extra": "^4.0.2",
-    "dugite-extra": "0.0.1-alpha.15",
+    "dugite-extra": "0.0.1-alpha.17",
     "find-git-repositories": "^0.1.0",
     "fs-extra": "^4.0.2"
   },

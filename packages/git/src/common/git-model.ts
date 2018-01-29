@@ -37,6 +37,12 @@ export interface WorkingDirectoryStatus {
      */
     readonly currentHead?: string;
 
+    /**
+     * `true` indicates that the `git status` command was executed with a `limit` and this was hit, thus the working directory status is not complete.
+     * If not specified, it means `false`.
+     */
+    readonly didHitLimit?: boolean;
+
 }
 
 export namespace WorkingDirectoryStatus {

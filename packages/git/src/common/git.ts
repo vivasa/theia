@@ -145,6 +145,19 @@ export namespace Git {
         }
 
         /**
+         * Options for the `git status`.
+         */
+        export interface Status {
+
+            /**
+             * Limits the number of file change items that will be included in the working directory status.
+             * If not set, or not a positive integer, then the result will not be limited.
+             */
+            readonly limit?: number;
+
+        }
+
+        /**
          * Options for further `git checkout` refinements.
          */
         export namespace Checkout {
@@ -464,9 +477,10 @@ export interface Git extends Disposable {
     /**
      * Returns with the working directory status of the given Git repository.
      *
-     * @param the repository to get the working directory status from.
+     * @param repository the repository to get the working directory status from.
+     * @param options for further refining the `git status` command.
      */
-    status(repository: Repository): Promise<WorkingDirectoryStatus>;
+    status(repository: Repository, options?: Git.Options.Status): Promise<WorkingDirectoryStatus>;
 
     /**
      * Stages the given file or files in the working clone. The invocation will be rejected if
