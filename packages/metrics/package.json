@@ -4,16 +4,15 @@
   "description": "Theia - Metrics Extension",
   "dependencies": {
     "@theia/core": "^0.3.7",
+    "@theia/application-package": "^0.3.7",
     "prom-client": "^10.2.0"
   },
   "publishConfig": {
     "access": "public"
   },
-  "theiaExtensions": [
-    {
-      "backend": "lib/node/metrics-backend-module"
-    }
-  ],
+  "theiaExtensions": [{
+    "backend": "lib/node/metrics-backend-module"
+  }],
   "keywords": [
     "theia-extension"
   ],
