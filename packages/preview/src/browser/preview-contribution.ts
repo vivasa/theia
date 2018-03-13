@@ -22,7 +22,7 @@ import { PreviewUri } from "./preview-uri";
 export namespace PreviewCommands {
     export const OPEN: Command = {
         id: 'preview:open',
-        label: 'Open Preview'
+        label: 'Preview: Open'
     };
 }
 
