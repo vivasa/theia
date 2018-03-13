@@ -5,15 +5,18 @@
  * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
  */
 
-import { injectable, inject } from "inversify";
-import { h } from "@phosphor/virtualdom/lib";
-import { Message } from "@phosphor/messaging";
-import URI from "@theia/core/lib/common/uri";
+import { injectable, inject } from 'inversify';
+import { h } from '@phosphor/virtualdom/lib';
+import { Message } from '@phosphor/messaging';
+import URI from '@theia/core/lib/common/uri';
 import { SelectionService, CommandService } from '@theia/core/lib/common';
-import { ContextMenuRenderer, TreeProps, TreeModel, TreeNode, LabelProvider } from '@theia/core/lib/browser';
-import { FileTreeWidget, DirNode } from "@theia/filesystem/lib/browser";
+import { ContextMenuRenderer, TreeProps, TreeModel, TreeNode, LabelProvider, Widget, SelectableTreeNode } from '@theia/core/lib/browser';
+import { FileTreeWidget, DirNode } from '@theia/filesystem/lib/browser';
 import { WorkspaceService, WorkspaceCommands } from '@theia/workspace/lib/browser';
-import { FileNavigatorModel } from "./navigator-model";
+import { FileNavigatorModel } from './navigator-model';
+import { FileNavigatorSearch } from './navigator-search';
+import { DisposableCollection } from '@theia/core/lib/common/disposable';
+import { SearchBox } from './search-box';
 
 export const FILE_NAVIGATOR_ID = 'files';
 export const LABEL = 'Files';
@@ -22,6 +25,9 @@ export const CLASS = 'theia-Files';
 @injectable()
 export class FileNavigatorWidget extends FileTreeWidget {
 
+    protected readonly disposables = new DisposableCollection();
+    protected readonly searchBox: SearchBox.Widget;
+
     constructor(
         @inject(TreeProps) readonly props: TreeProps,
         @inject(FileNavigatorModel) readonly model: FileNavigatorModel,
@@ -29,13 +35,31 @@ export class FileNavigatorWidget extends FileTreeWidget {
         @inject(CommandService) protected readonly commandService: CommandService,
         @inject(SelectionService) protected readonly selectionService: SelectionService,
         @inject(WorkspaceService) protected readonly workspaceService: WorkspaceService,
-        @inject(LabelProvider) protected readonly labelProvider: LabelProvider
+        @inject(LabelProvider) protected readonly labelProvider: LabelProvider,
+        @inject(FileNavigatorSearch.Engine) protected readonly searchEngine: FileNavigatorSearch.Engine,
+        @inject(SearchBox.Factory) protected readonly searchBoxFactory: SearchBox.Factory
     ) {
         super(props, model, contextMenuRenderer);
         this.id = FILE_NAVIGATOR_ID;
         this.title.label = LABEL;
         this.addClass(CLASS);
         this.initialize();
+        this.searchBox = searchBoxFactory(SearchBox.Props.DEFAULT);
+        this.disposables.pushAll([
+            this.model.onExpansionChanged(() => this.searchBox.hide()),
+            this.searchEngine,
+            this.searchEngine.onFilteredNodesChanged(nodes => {
+                const node = nodes.find(SelectableTreeNode.is);
+                if (node) {
+                    this.model.selectNode(node);
+                }
+            }),
+            this.searchBox,
+            this.searchBox.onTextChange(data => this.searchEngine.filter(data)),
+            this.searchBox.onClose(data => this.searchEngine.filter(undefined)),
+            this.searchBox.onNext(() => this.model.selectNextNode()),
+            this.searchBox.onPrevious(() => this.model.selectPrevNode()),
+        ]);
     }
 
     protected initialize(): void {
@@ -53,6 +77,11 @@ export class FileNavigatorWidget extends FileTreeWidget {
                 this.update();
             }
         });
+    }
+
+    dispose(): void {
+        super.dispose();
+        this.disposables.dispose();
     }
 
     protected deflateForStorage(node: TreeNode): object {
@@ -80,6 +109,8 @@ export class FileNavigatorWidget extends FileTreeWidget {
         super.onAfterAttach(msg);
         this.addClipboardListener(this.node, 'copy', e => this.handleCopy(e));
         this.addClipboardListener(this.node, 'paste', e => this.handlePaste(e));
+        Widget.attach(this.searchBox, this.node);
+        this.addKeyListener(this.node, this.searchBox.keyCodePredicate.bind(this.searchBox), this.searchBox.handle.bind(this.searchBox));
     }
 
     protected handleCopy(event: ClipboardEvent): void {

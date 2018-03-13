@@ -16,6 +16,10 @@ import { WidgetFactory } from '@theia/core/lib/browser/widget-manager';
 import { CommandContribution } from '@theia/core/lib/common/command';
 import { bindFileNavigatorPreferences } from './navigator-preferences';
 import { FileNavigatorFilter } from './navigator-filter';
+import { NavigatorTreeDecorator } from './navigator-decorator-service';
+import { FuzzySearch, FuzzySearchImpl } from './fuzzy-search';
+import { FileNavigatorSearch } from './navigator-search';
+import { SearchBox } from './search-box';
 
 import '../../src/browser/style/index.css';
 
@@ -28,6 +32,24 @@ export default new ContainerModule(bind => {
     bind(KeybindingContribution).toDynamicValue(c => c.container.get(FileNavigatorContribution));
     bind(MenuContribution).toDynamicValue(c => c.container.get(FileNavigatorContribution));
     bind(MenuContribution).to(NavigatorMenuContribution).inSingletonScope();
+
+    bind(FuzzySearchImpl).toSelf().inSingletonScope();
+    bind(FuzzySearch.Search).toService(FuzzySearchImpl);
+    bind(FileNavigatorSearch.EngineImpl).toSelf().inSingletonScope();
+    bind(FileNavigatorSearch.Engine).toService(FileNavigatorSearch.EngineImpl);
+    bind(NavigatorTreeDecorator).toService(FileNavigatorSearch.EngineImpl);
+    bind(FileNavigatorSearch.ThrottleOptions).toConstantValue(FileNavigatorSearch.ThrottleOptions.DEFAULT);
+    bind(FileNavigatorSearch.Throttle).toSelf();
+    bind(SearchBox.Widget).toSelf();
+    bind(SearchBox.Factory).toFactory(context =>
+        (props: SearchBox.Props) => {
+            const { container } = context;
+            const { delay } = props;
+            container.bind(FileNavigatorSearch.ThrottleOptions).toConstantValue({ delay });
+            container.bind(SearchBox.Props).toConstantValue(props);
+            return container.get(SearchBox.Widget);
+        }
+    );
 
     bind(FileNavigatorWidget).toDynamicValue(ctx =>
         createFileNavigatorWidget(ctx.container)
