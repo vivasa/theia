@@ -21,10 +21,5 @@ export class ExtensionApiContribution implements BackendApplicationContribution 
             const filePath: string = req.params.path;
             res.sendFile(extensionPath + filePath);
         });
-
-        app.get('/webworker/:file', (req, res) => {
-            const filePath: string = req.params.file;
-            res.sendFile(__dirname + filePath);
-        });
     }
 }

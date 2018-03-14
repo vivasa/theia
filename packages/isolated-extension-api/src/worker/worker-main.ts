@@ -19,11 +19,13 @@ export interface MainThreadCommandsShape extends Disposable {
     $getCommands(): Thenable<string[]>;
 }
 
+const ctx: Worker = self as any;
+
 const emmitter = new Emitter();
 const rpc = new RPCProtocolImpl({
     onMessage: emmitter.event,
     send: (m: {}) => {
-        postMessage(m);
+        ctx.postMessage(m);
     }
 });
 addEventListener('message', (message: any) => {

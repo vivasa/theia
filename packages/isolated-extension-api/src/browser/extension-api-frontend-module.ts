@@ -15,9 +15,10 @@ import { MaybePromise } from "@theia/core/lib/common";
 export default new ContainerModule(bind => {
     bind(FrontendApplicationContribution).toDynamicValue(ctx => ({
         onStart(app: FrontendApplication): MaybePromise<void> {
-            const worker = new Worker('/webworker/worker-main.ts');
+
+            const worker: Worker = new (require('../worker/worker-main'));
             worker.addEventListener('message', message => {
-                console.log(message);
+                console.log('message is', message);
             });
         }
     }));
