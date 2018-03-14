@@ -10,7 +10,8 @@
   },
   "theiaExtensions": [
     {
-      "backend": "lib/node/extension-api-backend-module"
+      "backend": "lib/node/extension-api-backend-module",
+      "frontend": "lib/browser/extension-api-frontend-module"
     }
   ],
   "keywords": [
