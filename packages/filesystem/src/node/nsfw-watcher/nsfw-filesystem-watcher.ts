@@ -108,8 +108,9 @@ export class NsfwFileSystemWatcherServer implements FileSystemWatcherServer {
                     this.pushUpdated(watcherId, paths.join(event.directory, event.file!));
                 }
                 if (event.action === nsfw.actions.RENAMED) {
-                    this.pushDeleted(watcherId, paths.join(event.directory, event.oldFile!));
-                    this.pushAdded(watcherId, paths.join(event.directory, event.newFile!));
+                    // this.pushDeleted(watcherId, paths.join(event.directory, event.oldFile!));
+                    // this.pushAdded(watcherId, paths.join(event.directory, event.newFile!));
+                    this.pushRenamed(watcherId, paths.join(event.directory, event.oldFile!), paths.join(event.directory, event.newFile!));
                 }
             }
         });
@@ -157,13 +158,27 @@ export class NsfwFileSystemWatcherServer implements FileSystemWatcherServer {
         this.pushFileChange(watcherId, path, FileChangeType.DELETED);
     }
 
-    protected pushFileChange(watcherId: number, path: string, type: FileChangeType): void {
+    protected pushRenamed(watcherId: number, path: string, path2: string): void {
+        this.debug('Renamed:', path, path2);
+        this.pushFileChange(watcherId, path, FileChangeType.RENAMED);
+    }
+
+    protected pushFileChange(watcherId: number, path: string, type: FileChangeType, oldPath?: string): void {
         if (this.isIgnored(watcherId, path)) {
+            return;
+        }
+        if (oldPath && this.isIgnored(watcherId, oldPath)) {
             return;
         }
 
         const uri = FileUri.create(path).toString();
-        this.changes.push({ uri, type });
+
+        if (oldPath && type === FileChangeType.RENAMED) {
+            const oldUri = FileUri.create(oldPath).toString();
+            this.changes.push({ uri, oldUri, type });
+        } else {
+            this.changes.push({ uri, type });
+        }
 
         this.toDisposeOnFileChange.dispose();
         const timer = setTimeout(() => this.fireDidFilesChanged(), this.fireDidFilesChangedTimeout);

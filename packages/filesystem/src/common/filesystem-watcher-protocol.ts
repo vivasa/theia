@@ -43,13 +43,15 @@ export interface DidFilesChangedParams {
 
 export interface FileChange {
     uri: string;
+    oldUri?: string;
     type: FileChangeType;
 }
 
 export enum FileChangeType {
     UPDATED = 0,
     ADDED = 1,
-    DELETED = 2
+    DELETED = 2,
+    RENAMED = 3
 }
 
 export const FileSystemWatcherServerProxy = Symbol('FileSystemWatcherServerProxy');
