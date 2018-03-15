@@ -40,7 +40,7 @@ export class CommandRegistryImpl implements CommandRegistryExt {
         throw new Error("Method not implemented.");
     }
 
-    executeContributedCommand<T>(id: string): PromiseLike<T> {
+    executeCommand<T>(id: string): PromiseLike<T> {
         const handler = this.commands.get(id);
         if (handler) {
             return Promise.resolve(handler());

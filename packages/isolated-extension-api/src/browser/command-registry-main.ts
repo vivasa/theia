@@ -30,7 +30,7 @@ export class CommandRegistryMainImpl implements CommandRegistryMain {
             command.id,
             this.delegate.registerCommand(command, {
                 execute: (...args: any[]) => {
-                    this.proxy.executeContributedCommand(command.id);
+                    this.proxy.executeCommand(command.id);
                 },
                 isEnabled() { return true; },
                 isVisible() { return true; }

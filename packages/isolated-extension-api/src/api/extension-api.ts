@@ -46,7 +46,7 @@ export interface CommandRegistryMain {
 }
 
 export interface CommandRegistryExt {
-    executeContributedCommand<T>(id: string): PromiseLike<T>;
+    executeCommand<T>(id: string): PromiseLike<T>;
 }
 
 export const EXTENSION_RPC_CONTEXT = {
