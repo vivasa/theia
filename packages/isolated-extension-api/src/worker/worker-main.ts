@@ -9,17 +9,11 @@
  *   Red Hat, Inc. - initial API and implementation
  */
 
-import { RPCProtocolImpl, createExtensionProxyIdentifier } from '../api/rpc-protocol';
+import { RPCProtocolImpl } from '../api/rpc-protocol';
 import { Emitter } from '@theia/core/lib/common/event';
-import { Disposable } from '@theia/core/lib/common/disposable';
-export interface MainThreadCommandsShape extends Disposable {
-    $registerCommand(id: string): void;
-    $unregisterCommand(id: string): void;
-    $executeCommand<T>(id: string, args: any[]): Thenable<T>;
-    $getCommands(): Thenable<string[]>;
-}
+import { createAPI } from '../extension/extension-context';
 
-const ctx: Worker = self as any;
+const ctx: DedicatedWorkerGlobalScope = self as any;
 
 const emmitter = new Emitter();
 const rpc = new RPCProtocolImpl({
@@ -32,8 +26,7 @@ addEventListener('message', (message: any) => {
     emmitter.fire(message.data);
 });
 
-const ExtHostCommands = createExtensionProxyIdentifier<MainThreadCommandsShape>("MainThreadCommands");
-
-const proxy = rpc.getProxy(ExtHostCommands);
-
-proxy.$registerCommand('foo');
+const api = createAPI(rpc);
+api.commands.registerCommand({ id: 'fooBar', label: 'Command From Extension' }, () => {
+    console.log("Hello from WebWorker Command");
+});

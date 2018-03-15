@@ -11,15 +11,19 @@
 import { ContainerModule } from "inversify";
 import { FrontendApplicationContribution, FrontendApplication } from "@theia/core/lib/browser";
 import { MaybePromise } from "@theia/core/lib/common";
+import { ExtensionWorker } from './extension-worker';
+import { CommandRegistryMainImpl } from './command-registry-main';
+import { EXTENSION_RPC_CONTEXT } from '../api/extension-api';
 
 export default new ContainerModule(bind => {
+    bind(ExtensionWorker).toSelf().inSingletonScope();
+    bind(CommandRegistryMainImpl).toSelf().inSingletonScope();
+    // bind(FrontendApplicationContribution).toService(ExtensionWorker);
     bind(FrontendApplicationContribution).toDynamicValue(ctx => ({
         onStart(app: FrontendApplication): MaybePromise<void> {
-
-            const worker: Worker = new (require('../worker/worker-main'));
-            worker.addEventListener('message', message => {
-                console.log('message is', message);
-            });
+            const worker = ctx.container.get(ExtensionWorker);
+            const commandRegistryMain = ctx.container.get(CommandRegistryMainImpl);
+            worker.rpc.set(EXTENSION_RPC_CONTEXT.COMMAND_REGISTRY_MAIN, commandRegistryMain);
         }
     }));
 });

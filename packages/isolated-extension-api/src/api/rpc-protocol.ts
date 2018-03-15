@@ -23,6 +23,11 @@ export interface RPCProtocol {
      */
     getProxy<T>(proxyId: ProxyIdentifier<T>): T;
 
+    /**
+     * Register manually created instance.
+     */
+    set<T, R extends T>(identifier: ProxyIdentifier<T>, instance: R): R;
+
 }
 
 export class ProxyIdentifier<T> {
@@ -33,15 +38,12 @@ export class ProxyIdentifier<T> {
     }
 }
 
-export function createMainProxyIdentifier<T>(identifier: string): ProxyIdentifier<T> {
-    return new ProxyIdentifier(true, 'm' + identifier);
-}
-
-export function createExtensionProxyIdentifier<T>(identifier: string): ProxyIdentifier<T> {
-    return new ProxyIdentifier(false, 'e' + identifier);
+export function createProxyIdentifier<T>(identifier: string): ProxyIdentifier<T> {
+    return new ProxyIdentifier(false, identifier);
 }
 
 export class RPCProtocolImpl implements RPCProtocol {
+
     private isDisposed: boolean;
     private readonly locals: { [id: string]: any; };
     private readonly proxies: { [id: string]: any; };
@@ -66,10 +68,15 @@ export class RPCProtocolImpl implements RPCProtocol {
         return this.proxies[proxyId.id];
     }
 
+    set<T, R extends T>(identifier: ProxyIdentifier<T>, instance: R): R {
+        this.locals[identifier.id] = instance;
+        return instance;
+    }
+
     private createProxy<T>(proxyId: string): T {
         const handler = {
             get: (target: any, name: string) => {
-                if (!target[name] && name.charCodeAt(0) === 36 /* CharCode.DollarSign */) {
+                if (!target[name] /*&& name.charCodeAt(0) === 36 */ /* CharCode.DollarSign */) {
                     target[name] = (...myArgs: any[]) =>
                         this.remoteCall(proxyId, name, myArgs);
                 }
