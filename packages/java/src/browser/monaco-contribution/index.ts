@@ -10,9 +10,9 @@ import { configuration, monarchLanguage } from "./java-monaco-language";
 
 monaco.languages.register({
     id: JAVA_LANGUAGE_ID,
-    extensions: ['.java', '.jav', '.class'],
-    aliases: ['Java', 'java'],
-    mimetypes: ['text/x-java-source', 'text/x-java'],
+    extensions: ['.java', '.jav', '.class', '.groovy', '.gradle'],
+    aliases: ['Java', 'java', 'Groovy', 'groovy'],
+    mimetypes: ['text/x-java-source', 'text/x-java', 'text/x-groovy', 'text/x-groovy-text'],
 });
 
 monaco.languages.onLanguage(JAVA_LANGUAGE_ID, () => {
