@@ -26,11 +26,17 @@ export class WebpackGenerator extends AbstractGenerator {
         return `// @ts-check
 const path = require('path');
 const webpack = require('webpack');
+const yargs = require('yargs');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
 const CircularDependencyPlugin = require('circular-dependency-plugin');
 
 const outputPath = path.resolve(__dirname, 'lib');
-const development = process.env.NODE_ENV === 'development';${this.ifMonaco(() => `
+const { mode }  = yargs.option('mode', {
+    description: "Mode to use",
+    choices: ["development", "production"],
+    default: "production"
+}).argv;
+const development = mode === 'development';${this.ifMonaco(() => `
 
 const monacoEditorPath = development ? '${this.resolve('monaco-editor-core', 'dev/vs')}' : '${this.resolve('monaco-editor-core', 'min/vs')}';
 const monacoLanguagesPath = '${this.resolve('monaco-languages', 'release')}';
@@ -45,6 +51,7 @@ module.exports = {
         path: outputPath
     },
     target: '${this.ifBrowser('web', 'electron-renderer')}',
+    mode,
     node: {${this.ifElectron(`
         __dirname: false,
         __filename: false`, `
@@ -104,7 +111,6 @@ module.exports = {
     },
     devtool: 'source-map',
     plugins: [
-        new webpack.HotModuleReplacementPlugin(),
         new CopyWebpackPlugin([${this.ifMonaco(() => `
             {
                 from: monacoEditorPath,

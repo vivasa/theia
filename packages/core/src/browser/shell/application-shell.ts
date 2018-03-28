@@ -16,7 +16,7 @@ import { Message } from '@phosphor/messaging';
 import { IDragEvent } from '@phosphor/dragdrop';
 import { RecursivePartial } from '../../common';
 import { Saveable } from '../saveable';
-import { StatusBarImpl, StatusBarLayoutData } from '../status-bar/status-bar';
+import { StatusBarImpl, StatusBarLayoutData, StatusBarEntry, StatusBarAlignment } from '../status-bar/status-bar';
 import { SidePanelHandler, SidePanel, SidePanelHandlerFactory, TheiaDockPanel } from './side-panel-handler';
 import { TabBarRendererFactory, TabBarRenderer, SHELL_TABBAR_CONTEXT_MENU, ScrollableTabBar } from './tab-bars';
 import { SplitPositionHandler, SplitPositionOptions } from './split-panels';
@@ -25,14 +25,23 @@ import { SplitPositionHandler, SplitPositionOptions } from './split-panels';
 const APPLICATION_SHELL_CLASS = 'theia-ApplicationShell';
 /** The class name added to the main and bottom area panels. */
 const MAIN_BOTTOM_AREA_CLASS = 'theia-app-centers';
+/** Status bar entry identifier for the bottom panel toggle button. */
+const BOTTOM_PANEL_TOGGLE_ID = 'bottom-panel-toggle';
+/** The class name added to the main area panel. */
+const MAIN_AREA_CLASS = 'theia-app-main';
+/** The class name added to the bottom area panel. */
+const BOTTOM_AREA_CLASS = 'theia-app-bottom';
 
 export const ApplicationShellOptions = Symbol('ApplicationShellOptions');
+export const DockPanelRendererFactory = Symbol('DockPanelRendererFactory');
 
 /**
  * A renderer for dock panels that supports context menus on tabs.
  */
 @injectable()
 export class DockPanelRenderer implements DockLayout.IRenderer {
+
+    readonly tabBarClasses: string[] = [];
 
     constructor(
         @inject(TabBarRendererFactory) protected readonly tabBarRendererFactory: () => TabBarRenderer
@@ -48,7 +57,7 @@ export class DockPanelRenderer implements DockLayout.IRenderer {
             scrollXMarginOffset: 4,
             suppressScrollY: true
         });
-        tabBar.addClass(MAIN_BOTTOM_AREA_CLASS);
+        this.tabBarClasses.forEach(c => tabBar.addClass(c));
         renderer.tabBar = tabBar;
         renderer.contextMenuPath = SHELL_TABBAR_CONTEXT_MENU;
         tabBar.currentChanged.connect(this.onCurrentTabChanged, this);
@@ -128,7 +137,7 @@ export class ApplicationShell extends Widget {
      * Construct a new application shell.
      */
     constructor(
-        @inject(DockPanelRenderer) protected dockPanelRenderer: DockPanelRenderer,
+        @inject(DockPanelRendererFactory) protected dockPanelRendererFactory: () => DockPanelRenderer,
         @inject(StatusBarImpl) protected readonly statusBar: StatusBarImpl,
         @inject(SidePanelHandlerFactory) sidePanelHandlerFactory: () => SidePanelHandler,
         @inject(SplitPositionHandler) protected splitPositionHandler: SplitPositionHandler,
@@ -326,9 +335,12 @@ export class ApplicationShell extends Widget {
      * Create the dock panel in the main shell area.
      */
     protected createMainPanel(): DockPanel {
+        const renderer = this.dockPanelRendererFactory();
+        renderer.tabBarClasses.push(MAIN_BOTTOM_AREA_CLASS);
+        renderer.tabBarClasses.push(MAIN_AREA_CLASS);
         const dockPanel = new TheiaDockPanel({
             mode: 'multiple-document',
-            renderer: this.dockPanelRenderer,
+            renderer,
             spacing: 0
         });
         dockPanel.id = 'theia-main-content-panel';
@@ -339,16 +351,23 @@ export class ApplicationShell extends Widget {
      * Create the dock panel in the bottom shell area.
      */
     protected createBottomPanel(): DockPanel {
+        const renderer = this.dockPanelRendererFactory();
+        renderer.tabBarClasses.push(MAIN_BOTTOM_AREA_CLASS);
+        renderer.tabBarClasses.push(BOTTOM_AREA_CLASS);
         const dockPanel = new TheiaDockPanel({
             mode: 'multiple-document',
-            renderer: this.dockPanelRenderer,
+            renderer,
             spacing: 0
         });
         dockPanel.id = 'theia-bottom-content-panel';
+        dockPanel.widgetAdded.connect((sender, widget) => {
+            this.refreshBottomPanelToggleButton();
+        });
         dockPanel.widgetRemoved.connect((sender, widget) => {
-            if (dockPanel.isEmpty) {
+            if (sender.isEmpty) {
                 this.collapseBottomPanel();
             }
+            this.refreshBottomPanelToggleButton();
         }, this);
         dockPanel.node.addEventListener('p-dragenter', event => {
             // Make sure that the main panel hides its overlay when the bottom panel is expanded
@@ -407,7 +426,7 @@ export class ApplicationShell extends Widget {
         const bottomSplitLayout = this.createSplitLayout(
             [this.mainPanel, this.bottomPanel],
             [1, 0],
-            { orientation: 'vertical', spacing: 2 }
+            { orientation: 'vertical', spacing: 0 }
         );
         const panelForBottomArea = new SplitPanel({ layout: bottomSplitLayout });
         panelForBottomArea.id = 'theia-bottom-split-panel';
@@ -415,7 +434,7 @@ export class ApplicationShell extends Widget {
         const leftRightSplitLayout = this.createSplitLayout(
             [this.leftPanelHandler.container, panelForBottomArea, this.rightPanelHandler.container],
             [0, 1, 0],
-            { orientation: 'horizontal', spacing: 2 }
+            { orientation: 'horizontal', spacing: 0 }
         );
         const panelForSideAreas = new SplitPanel({ layout: leftRightSplitLayout });
         panelForSideAreas.id = 'theia-left-right-split-panel';
@@ -674,10 +693,14 @@ export class ApplicationShell extends Widget {
     private onActiveChanged(sender: any, args: FocusTracker.IChangedArgs<Widget>): void {
         const { newValue, oldValue } = args;
         if (oldValue) {
+            // Remove the mark of the previously active widget
+            oldValue.title.className = oldValue.title.className.replace(' theia-mod-active', '');
             // Reset the z-index to the default
             this.setZIndex(oldValue.node, null);
         }
         if (newValue) {
+            // Mark the tab of the active widget
+            newValue.title.className += ' theia-mod-active';
             // Reveal the title of the active widget in its tab bar
             const tabBar = this.getTabBarFor(newValue);
             if (tabBar instanceof ScrollableTabBar) {
@@ -870,6 +893,25 @@ export class ApplicationShell extends Widget {
             }
             this.bottomPanelState.expansion = SidePanel.ExpansionState.collapsed;
             bottomPanel.hide();
+        }
+    }
+
+    /**
+     * Refresh the toggle button for the bottom panel. This implementation creates a status bar entry
+     * and refers to the command `core.toggle.bottom.panel`.
+     */
+    protected refreshBottomPanelToggleButton() {
+        if (this.bottomPanel.isEmpty) {
+            this.statusBar.removeElement(BOTTOM_PANEL_TOGGLE_ID);
+        } else {
+            const element: StatusBarEntry = {
+                text: '$(window-maximize)',
+                alignment: StatusBarAlignment.RIGHT,
+                tooltip: 'Toggle Bottom Panel',
+                command: 'core.toggle.bottom.panel',
+                priority: 0
+            };
+            this.statusBar.setElement(BOTTOM_PANEL_TOGGLE_ID, element);
         }
     }
 

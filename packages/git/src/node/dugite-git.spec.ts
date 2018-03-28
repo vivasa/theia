@@ -366,8 +366,169 @@ describe('git', async function () {
 
     });
 
-    describe('diff', async () => {
+    describe('blame', async () => {
 
+        const init = async (git: Git, repository: Repository) => {
+            await git.exec(repository, ['init']);
+            if ((await git.exec(repository, ['config', 'user.name'], { successExitCodes: new Set([0, 1]) })).exitCode !== 0) {
+                await git.exec(repository, ['config', 'user.name', "User Name"]);
+            }
+            if ((await git.exec(repository, ['config', 'user.email'], { successExitCodes: new Set([0, 1]) })).exitCode !== 0) {
+                await git.exec(repository, ['config', 'user.email', "user.name@domain.com"]);
+            }
+        };
+
+        it('blame file with dirty content', async () => {
+            const fileName = 'blame.me.not';
+            const root = track.mkdirSync('blame-dirty-file');
+            const filePath = path.join(root, fileName);
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+
+            const writeContentLines = async (lines: string[]) => await fs.writeFile(filePath, lines.join('\n'), { encoding: 'utf8' });
+            const addAndCommit = async (message: string) => {
+                await git.exec(repository, ['add', '.']);
+                await git.exec(repository, ['commit', '-m', `${message}`]);
+            };
+            const expectBlame = async (content: string, expected: [number, string][]) => {
+                const uri = FileUri.create(path.join(root, fileName)).toString();
+                const actual = await git.blame(repository, uri, { content });
+                expect(actual).to.be.not.undefined;
+                const messages = new Map(actual!.commits.map<[string, string]>(c => [c.sha, c.summary]));
+                const lineMessages = actual!.lines.map(l => [l.line, messages.get(l.sha)]);
+                expect(lineMessages).to.be.deep.equal(expected);
+            };
+
+            const git = await createGit();
+            await init(git, repository);
+            await fs.createFile(filePath);
+
+            await writeContentLines(['🍏', '🍏', '🍏', '🍏', '🍏', '🍏']);
+            await addAndCommit('six 🍏');
+
+            await expectBlame(['🍏', '🍐', '🍐', '🍏', '🍏', '🍏'].join('\n'),
+                [
+                    [0, 'six 🍏'],
+                    [1, 'uncommitted'],
+                    [2, 'uncommitted'],
+                    [3, 'six 🍏'],
+                    [4, 'six 🍏'],
+                    [5, 'six 🍏'],
+                ]);
+        });
+
+        it('uncommitted file', async () => {
+            const fileName = 'uncommitted.file';
+            const root = track.mkdirSync('try-blame');
+            const filePath = path.join(root, fileName);
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+
+            const writeContentLines = async (lines: string[]) => await fs.writeFile(filePath, lines.join('\n'), { encoding: 'utf8' });
+            const add = async () => {
+                await git.exec(repository, ['add', '.']);
+            };
+            const expectUndefinedBlame = async () => {
+                const uri = FileUri.create(path.join(root, fileName)).toString();
+                const actual = await git.blame(repository, uri);
+                expect(actual).to.be.undefined;
+            };
+
+            const git = await createGit();
+            await init(git, repository);
+            await fs.createFile(filePath);
+
+            await writeContentLines(['🍏', '🍏', '🍏', '🍏', '🍏', '🍏']);
+            await expectUndefinedBlame();
+
+            await add();
+            await expectUndefinedBlame();
+
+            await writeContentLines(['🍏', '🍐', '🍐', '🍏', '🍏', '🍏']);
+            await expectUndefinedBlame();
+        });
+
+        it('blame file', async () => {
+            const fileName = 'blame.me';
+            const root = track.mkdirSync('blame-file');
+            const filePath = path.join(root, fileName);
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+
+            const writeContentLines = async (lines: string[]) => await fs.writeFile(filePath, lines.join('\n'), { encoding: 'utf8' });
+            const addAndCommit = async (message: string) => {
+                await git.exec(repository, ['add', '.']);
+                await git.exec(repository, ['commit', '-m', `${message}`]);
+            };
+            const expectBlame = async (expected: [number, string][]) => {
+                const uri = FileUri.create(path.join(root, fileName)).toString();
+                const actual = await git.blame(repository, uri);
+                expect(actual).to.be.not.undefined;
+                const messages = new Map(actual!.commits.map<[string, string]>(c => [c.sha, c.summary]));
+                const lineMessages = actual!.lines.map(l => [l.line, messages.get(l.sha)]);
+                expect(lineMessages).to.be.deep.equal(expected);
+            };
+
+            const git = await createGit();
+            await init(git, repository);
+            await fs.createFile(filePath);
+
+            await writeContentLines(['🍏', '🍏', '🍏', '🍏', '🍏', '🍏']);
+            await addAndCommit('six 🍏');
+
+            await writeContentLines(['🍏', '🍐', '🍐', '🍏', '🍏', '🍏']);
+            await addAndCommit('replace two with 🍐');
+
+            await writeContentLines(['🍏', '🍐', '🍋', '🍋', '🍏', '🍏']);
+            await addAndCommit('replace two with 🍋');
+
+            await writeContentLines(['🍏', '🍐', '🍋', '🍌', '🍌', '🍏']);
+
+            await expectBlame([
+                [0, 'six 🍏'],
+                [1, 'replace two with 🍐'],
+                [2, 'replace two with 🍋'],
+                [3, 'uncommitted'],
+                [4, 'uncommitted'],
+                [5, 'six 🍏'],
+            ]);
+        });
+
+        it('commit summary and body', async () => {
+            const fileName = 'blame.me';
+            const root = track.mkdirSync('blame-with-commit-body');
+            const filePath = path.join(root, fileName);
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+
+            const writeContentLines = async (lines: string[]) => await fs.writeFile(filePath, lines.join('\n'), { encoding: 'utf8' });
+            const addAndCommit = async (message: string) => {
+                await git.exec(repository, ['add', '.']);
+                await git.exec(repository, ['commit', '-m', `${message}`]);
+            };
+            const expectBlame = async (expected: [number, string, string][]) => {
+                const uri = FileUri.create(path.join(root, fileName)).toString();
+                const actual = await git.blame(repository, uri);
+                expect(actual).to.be.not.undefined;
+                const messages = new Map(actual!.commits.map<[string, string[]]>(c => [c.sha, [c.summary, c.body!]]));
+                const lineMessages = actual!.lines.map(l => [l.line, ...messages.get(l.sha)!]);
+                expect(lineMessages).to.be.deep.equal(expected);
+            };
+
+            const git = await createGit();
+            await init(git, repository);
+            await fs.createFile(filePath);
+
+            await writeContentLines(['🍏']);
+            await addAndCommit('add 🍏\n* green\n* red');
+
+            await expectBlame([
+                [0, 'add 🍏', '* green\n* red']
+            ]);
+        });
+    });
+
+    describe('diff', async () => {
         const init = async (git: Git, repository: Repository) => {
             await git.exec(repository, ['init']);
             if ((await git.exec(repository, ['config', 'user.name'], { successExitCodes: new Set([0, 1]) })).exitCode !== 0) {
@@ -537,6 +698,46 @@ describe('git', async function () {
             // Filter for a non-existing file.
             await expectDiff('HEAD~4', 'HEAD~3', [], 'does not exist');
             await expectDiff('HEAD~4', 'HEAD', [], 'does not exist');
+        });
+
+    });
+
+    describe('ls-files', () => {
+
+        let git: Git;
+        let root: string;
+        let localUri: string;
+
+        before(async () => {
+            root = track.mkdirSync('ls-files');
+            localUri = FileUri.create(root).toString();
+            await createTestRepository(root);
+            git = await createGit();
+        });
+
+        ([
+            ['A.txt', true],
+            ['missing.txt', false],
+            ['../missing.txt', /^.*fatal: .* is outside repository$/],
+        ] as [string, boolean | RegExp][]).forEach(test => {
+            const [relativePath, expectation] = test;
+            const message = expectation instanceof RegExp ? 'be rejected' : `${expectation ? '' : 'not '}exist`;
+            it(`errorUnmatched - ${relativePath} should ${message}`, async () => {
+                const uri = expectation instanceof RegExp ? relativePath : FileUri.create(path.join(root, relativePath)).toString();
+                const testMe = async () => await git.lsFiles({ localUri }, uri, { errorUnmatch: true });
+                if (expectation instanceof RegExp) {
+                    try {
+                        throw new Error(`Expected a rejection, but got a result instead: ${await testMe()}.`);
+                    } catch (e) {
+                        if (e.message.startsWith('Expected a rejection, but got a result instead')) {
+                            throw e;
+                        }
+                        expect(expectation.test(e.message.trim())).to.be.equal(true, e.message);
+                    }
+                } else {
+                    expect(await testMe()).to.be.equal(expectation);
+                }
+            });
         });
 
     });

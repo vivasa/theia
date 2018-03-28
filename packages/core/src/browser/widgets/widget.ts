@@ -45,6 +45,20 @@ export class BaseWidget extends Widget {
         this.dispose();
     }
 
+    protected onBeforeAttach(msg: Message): void {
+        if (this.title.iconClass === '') {
+            this.title.iconClass = 'no-icon';
+        }
+        super.onBeforeAttach(msg);
+    }
+
+    protected onAfterDetach(msg: Message): void {
+        if (this.title.iconClass === 'no-icon') {
+            this.title.iconClass = '';
+        }
+        super.onAfterDetach(msg);
+    }
+
     protected onBeforeDetach(msg: Message): void {
         this.toDisposeOnDetach.dispose();
         super.onBeforeDetach(msg);
@@ -94,15 +108,16 @@ export class BaseWidget extends Widget {
         this.toDisposeOnDetach.push(addEventListener(element, type, listener));
     }
 
-    // tslint:disable-next-line:max-line-length
-    protected addKeyListener<K extends keyof HTMLElementEventMap>(element: HTMLElement, keysOrKeyCodes: KeysOrKeyCodes, action: (event: KeyboardEvent) => void, ...additionalEventTypes: K[]): void {
+    protected addKeyListener<K extends keyof HTMLElementEventMap>(
+        element: HTMLElement,
+        keysOrKeyCodes: KeyCode.Predicate | KeysOrKeyCodes,
+        action: (event: KeyboardEvent) => void, ...additionalEventTypes: K[]): void {
         this.toDisposeOnDetach.push(addKeyListener(element, keysOrKeyCodes, action, ...additionalEventTypes));
     }
 
     protected addClipboardListener<K extends 'cut' | 'copy' | 'paste'>(element: HTMLElement, type: K, listener: EventListenerOrEventListenerObject<K>): void {
         this.toDisposeOnDetach.push(addClipboardListener(element, type, listener));
     }
-
 }
 
 export function setEnabled(element: HTMLElement, enabled: boolean): void {
@@ -140,13 +155,22 @@ export function addEventListener<K extends keyof HTMLElementEventMap>(
     );
 }
 
-// tslint:disable-next-line:max-line-length
-export function addKeyListener<K extends keyof HTMLElementEventMap>(element: HTMLElement, keysOrKeyCodes: KeysOrKeyCodes, action: (event: KeyboardEvent) => void, ...additionalEventTypes: K[]): Disposable {
+export function addKeyListener<K extends keyof HTMLElementEventMap>(
+    element: HTMLElement,
+    keysOrKeyCodes: KeyCode.Predicate | KeysOrKeyCodes,
+    action: (event: KeyboardEvent) => void, ...additionalEventTypes: K[]): Disposable {
+
     const toDispose = new DisposableCollection();
-    const isAcceptedKeyCode = (actual: KeyCode) => KeysOrKeyCodes.toKeyCodes(keysOrKeyCodes).some(k => k.equals(actual));
+    const keyCodePredicate = (() => {
+        if (typeof keysOrKeyCodes === 'function') {
+            return keysOrKeyCodes;
+        } else {
+            return (actual: KeyCode) => KeysOrKeyCodes.toKeyCodes(keysOrKeyCodes).some(k => k.equals(actual));
+        }
+    })();
     toDispose.push(addEventListener(element, 'keydown', e => {
         const kc = KeyCode.createKeyCode(e);
-        if (isAcceptedKeyCode(kc)) {
+        if (keyCodePredicate(kc)) {
             action(e);
             e.stopPropagation();
             e.preventDefault();
