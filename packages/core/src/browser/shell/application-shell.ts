@@ -32,6 +32,8 @@ const MAIN_AREA_CLASS = 'theia-app-main';
 /** The class name added to the bottom area panel. */
 const BOTTOM_AREA_CLASS = 'theia-app-bottom';
 
+const LAYOUT_DATA_VERSION = '2.0';
+
 export const ApplicationShellOptions = Symbol('ApplicationShellOptions');
 export const DockPanelRendererFactory = Symbol('DockPanelRendererFactory');
 
@@ -463,6 +465,7 @@ export class ApplicationShell extends Widget {
      */
     getLayoutData(): ApplicationShell.LayoutData {
         return {
+            version: LAYOUT_DATA_VERSION,
             mainPanel: this.mainPanel.saveLayout(),
             bottomPanel: {
                 config: this.bottomPanel.saveLayout(),
@@ -471,7 +474,8 @@ export class ApplicationShell extends Widget {
             },
             leftPanel: this.leftPanelHandler.getLayoutData(),
             rightPanel: this.rightPanelHandler.getLayoutData(),
-            statusBar: this.statusBar.getLayoutData()
+            statusBar: this.statusBar.getLayoutData(),
+            activeWidgetId: this.activeWidget ? this.activeWidget.id : undefined
         };
     }
 
@@ -506,7 +510,8 @@ export class ApplicationShell extends Widget {
     /**
      * Apply a shell layout that has been previously created with `getLayoutData`.
      */
-    setLayoutData({ mainPanel, bottomPanel, leftPanel, rightPanel, statusBar }: ApplicationShell.LayoutData): void {
+    setLayoutData(layoutData: ApplicationShell.LayoutData): void {
+        const { mainPanel, bottomPanel, leftPanel, rightPanel, statusBar, activeWidgetId } = this.getValidatedLayoutData(layoutData);
         if (mainPanel) {
             this.mainPanel.restoreLayout(mainPanel);
             this.registerWithFocusTracker(mainPanel.main);
@@ -536,6 +541,16 @@ export class ApplicationShell extends Widget {
         if (statusBar) {
             this.statusBar.setLayoutData(statusBar);
         }
+        if (activeWidgetId) {
+            this.activateWidget(activeWidgetId);
+        }
+    }
+
+    protected getValidatedLayoutData(layoutData: ApplicationShell.LayoutData) {
+        if (layoutData.version !== LAYOUT_DATA_VERSION) {
+            throw new Error(`Saved workbench layout (version ${layoutData.version || 'unknown'}) is incompatible with the current (${LAYOUT_DATA_VERSION})`);
+        }
+        return layoutData;
     }
 
     /**
@@ -1240,11 +1255,13 @@ export namespace ApplicationShell {
      * Data to save and load the application shell layout.
      */
     export interface LayoutData {
+        version?: string,
         mainPanel?: DockPanel.ILayoutConfig;
         bottomPanel?: BottomPanelLayoutData;
         leftPanel?: SidePanel.LayoutData;
         rightPanel?: SidePanel.LayoutData;
         statusBar?: StatusBarLayoutData;
+        activeWidgetId?: string;
     }
 
     /**
