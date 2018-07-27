@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import * as os from 'os';
 import * as path from 'path';
@@ -26,7 +35,7 @@ export class JavaContribution extends BaseLanguageServerContribution {
     readonly name = JAVA_LANGUAGE_NAME;
 
     start(clientConnection: IConnection): void {
-        const serverPath = path.resolve(__dirname, 'server');
+        const serverPath = path.resolve(__dirname, '..', '..', 'server');
         const jarPaths = glob.sync('**/plugins/org.eclipse.equinox.launcher_*.jar', { cwd: serverPath });
         if (jarPaths.length === 0) {
             throw new Error('The Java server launcher is not found.');
@@ -49,7 +58,6 @@ export class JavaContribution extends BaseLanguageServerContribution {
         if (DEBUG_MODE) {
             args.push(
                 '-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=1044',
-                '-Dlog.protocol=true',
                 '-Dlog.level=ALL'
             );
         }
@@ -60,20 +68,15 @@ export class JavaContribution extends BaseLanguageServerContribution {
             '-data', workspacePath
         );
 
-        Promise.all([
-            this.startSocketServer(), this.startSocketServer()
-        ]).then(servers => {
-            const [inServer, outServer] = servers;
-            const inSocket = this.accept(inServer);
-            const outSocket = this.accept(outServer);
+        this.startSocketServer().then(server => {
+            const socket = this.accept(server);
 
             this.logInfo('logs at ' + path.resolve(workspacePath, '.metadata', '.log'));
             const env = Object.create(process.env);
-            env.STDIN_HOST = inServer.address().address;
-            env.STDIN_PORT = inServer.address().port;
-            env.STDOUT_HOST = outServer.address().address;
-            env.STDOUT_PORT = outServer.address().port;
-            this.createProcessSocketConnection(inSocket, outSocket, command, args, { env })
+            const address = server.address();
+            env.CLIENT_HOST = address.address;
+            env.CLIENT_PORT = address.port;
+            this.createProcessSocketConnection(socket, socket, command, args, { env })
                 .then(serverConnection => this.forward(clientConnection, serverConnection));
         });
     }

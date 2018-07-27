@@ -1,14 +1,23 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { MonacoToProtocolConverter, ProtocolToMonacoConverter } from 'monaco-languageclient';
 import URI from '@theia/core/lib/common/uri';
 import { Disposable } from '@theia/core/lib/common';
-import { Dimension, EditorDecorationsService, DiffNavigator, DeltaDecorationParams } from '@theia/editor/lib/browser';
+import { Dimension, DiffNavigator, DeltaDecorationParams } from '@theia/editor/lib/browser';
 import { MonacoEditorModel } from './monaco-editor-model';
 import { MonacoEditor } from './monaco-editor';
 import { MonacoDiffNavigatorFactory } from './monaco-diff-navigator-factory';
@@ -34,12 +43,11 @@ export class MonacoDiffEditor extends MonacoEditor {
         readonly modifiedModel: MonacoEditorModel,
         protected readonly m2p: MonacoToProtocolConverter,
         protected readonly p2m: ProtocolToMonacoConverter,
-        protected readonly decorationsService: EditorDecorationsService,
         protected readonly diffNavigatorFactory: MonacoDiffNavigatorFactory,
         options?: MonacoDiffEditor.IOptions,
         override?: IEditorOverrideServices,
     ) {
-        super(uri, modifiedModel, node, m2p, p2m, decorationsService, options, override);
+        super(uri, modifiedModel, node, m2p, p2m, options, override);
         this.documents.add(originalModel);
         const original = originalModel.textEditorModel;
         const modified = modifiedModel.textEditorModel;
@@ -82,19 +90,12 @@ export class MonacoDiffEditor extends MonacoEditor {
     }
 
     isActionSupported(id: string): boolean {
-        const action = this._diffEditor.getActions().find(a => a.id === id);
+        const action = this._diffEditor.getSupportedActions().find(a => a.id === id);
         return !!action && action.isSupported() && super.isActionSupported(id);
     }
 
     deltaDecorations(params: DeltaDecorationParams): string[] {
-        const uri = params.uri;
-        const oldDecorations = params.oldDecorations;
-        const newDecorations = this.toDeltaDecorations(params);
-        for (const editor of [this._diffEditor.getOriginalEditor(), this._diffEditor.getModifiedEditor()]) {
-            if (editor.getModel().uri.toString() === uri) {
-                return editor.deltaDecorations(oldDecorations, newDecorations);
-            }
-        }
+        console.warn('`deltaDecorations` should be called on either the original, or the modified editor.');
         return [];
     }
 }

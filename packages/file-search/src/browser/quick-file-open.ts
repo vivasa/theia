@@ -1,21 +1,42 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { inject, injectable } from "inversify";
-import { QuickOpenModel, QuickOpenItem, QuickOpenMode, QuickOpenService, OpenerService } from '@theia/core/lib/browser';
+import {
+    QuickOpenModel, QuickOpenItem, QuickOpenMode, QuickOpenService,
+    OpenerService, KeybindingRegistry, Keybinding
+} from '@theia/core/lib/browser';
 import { FileSystem, FileStat } from '@theia/filesystem/lib/common/filesystem';
 import { WorkspaceService } from '@theia/workspace/lib/browser/workspace-service';
 import URI from '@theia/core/lib/common/uri';
 import { FileSearchService } from '../common/file-search-service';
 import { CancellationTokenSource } from '@theia/core/lib/common';
 import { LabelProvider } from "@theia/core/lib/browser/label-provider";
+import { Command } from '@theia/core/lib/common';
+
+export const quickFileOpen: Command = {
+    id: 'file-search.openFile',
+    label: 'Open File...'
+};
 
 @injectable()
 export class QuickFileOpenService implements QuickOpenModel {
+
+    @inject(KeybindingRegistry)
+    protected readonly keybindingRegistry: KeybindingRegistry;
 
     constructor(
         @inject(FileSystem) protected readonly fileSystem: FileSystem,
@@ -28,19 +49,69 @@ export class QuickFileOpenService implements QuickOpenModel {
         workspaceService.root.then(root => this.wsRoot = root);
     }
 
-    private wsRoot: FileStat | undefined;
+    protected wsRoot: FileStat | undefined;
+
+    /**
+     * Whether to hide .gitignored (and other ignored) files.
+     */
+    protected hideIgnoredFiles: boolean = true;
+
+    /**
+     * Whether the dialog is currently open.
+     */
+    protected isOpen: boolean = false;
+
+    /**
+     * The current lookFor string input by the user.
+     */
+    protected currentLookFor: string = "";
 
     isEnabled(): boolean {
         return this.wsRoot !== undefined;
     }
 
     open(): void {
+        let placeholderText = "File name to search.";
+        const keybinding = this.getKeyCommand();
+        if (keybinding) {
+            placeholderText += ` (Press ${keybinding} to show/hide ignored files)`;
+        }
+
+        // Triggering the keyboard shortcut while the dialog is open toggles
+        // showing the ignored files.
+        if (this.isOpen) {
+            this.hideIgnoredFiles = !this.hideIgnoredFiles;
+        } else {
+            this.hideIgnoredFiles = true;
+            this.currentLookFor = "";
+            this.isOpen = true;
+        }
+
         this.quickOpenService.open(this, {
-            placeholder: 'file name to search',
+            placeholder: placeholderText,
+            prefix: this.currentLookFor,
             fuzzyMatchLabel: true,
             fuzzyMatchDescription: true,
-            fuzzySort: true
+            fuzzySort: true,
+            onClose: () => {
+                this.isOpen = false;
+            },
         });
+    }
+
+    /**
+     * Get a string (suitable to show to the user) representing the keyboard
+     * shortcut used to open the quick file open menu.
+     */
+    protected getKeyCommand(): string | undefined {
+        const keyCommand = this.keybindingRegistry.getKeybindingsForCommand(quickFileOpen.id);
+        if (keyCommand) {
+            // We only consider the first keybinding.
+            const accel = Keybinding.acceleratorFor(keyCommand[0], '+');
+            return accel.join(' ');
+        }
+
+        return undefined;
     }
 
     private cancelIndicator = new CancellationTokenSource();
@@ -49,6 +120,9 @@ export class QuickFileOpenService implements QuickOpenModel {
         if (!this.wsRoot) {
             return;
         }
+
+        this.currentLookFor = lookFor;
+
         this.cancelIndicator.cancel();
         this.cancelIndicator = new CancellationTokenSource();
         const token = this.cancelIndicator.token;
@@ -65,7 +139,12 @@ export class QuickFileOpenService implements QuickOpenModel {
                 acceptor(await Promise.all(itemPromises));
             }
         };
-        this.fileSearchService.find(lookFor, { rootUri, fuzzyMatch: true, limit: 200 }, token).then(handler);
+        this.fileSearchService.find(lookFor, {
+            rootUri,
+            fuzzyMatch: true,
+            limit: 200,
+            useGitIgnore: this.hideIgnoredFiles,
+        }, token).then(handler);
     }
 
     private async toItem(uriString: string) {

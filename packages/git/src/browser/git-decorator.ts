@@ -1,57 +1,62 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { inject, injectable } from 'inversify';
+import { inject, injectable, postConstruct } from 'inversify';
 import URI from '@theia/core/lib/common/uri';
 import { ILogger } from '@theia/core/lib/common/logger';
 import { Event, Emitter } from '@theia/core/lib/common/event';
 import { Tree } from '@theia/core/lib/browser/tree/tree';
 import { DepthFirstTreeIterator } from '@theia/core/lib/browser/tree/tree-iterator';
-import { DisposableCollection } from '@theia/core/lib/common/disposable';
 import { PreferenceChangeEvent } from '@theia/core/lib/browser/preferences/preference-proxy';
 import { TreeDecorator, TreeDecoration } from '@theia/core/lib/browser/tree/tree-decorator';
 import { Git } from '../common/git';
-import { GitWatcher } from '../common/git-watcher';
 import { WorkingDirectoryStatus } from '../common/git-model';
-import { GitRepositoryProvider } from './git-repository-provider';
 import { GitFileChange, GitFileStatus } from '../common/git-model';
 import { GitPreferences, GitConfiguration } from './git-preferences';
+import { GitRepositoryTracker } from './git-repository-tracker';
 
 @injectable()
 export class GitDecorator implements TreeDecorator {
 
     readonly id = 'theia-git-decorator';
 
-    protected readonly toDispose: DisposableCollection;
-    protected readonly emitter: Emitter<(tree: Tree) => Map<string, TreeDecoration.Data>>;
+    @inject(Git) protected readonly git: Git;
+    @inject(GitRepositoryTracker) protected readonly repositories: GitRepositoryTracker;
+    @inject(GitPreferences) protected readonly preferences: GitPreferences;
+    @inject(ILogger) protected readonly logger: ILogger;
+
+    protected readonly emitter = new Emitter<(tree: Tree) => Map<string, TreeDecoration.Data>>();
 
     protected enabled: boolean;
     protected showColors: boolean;
 
-    constructor(
-        @inject(Git) protected readonly git: Git,
-        @inject(GitRepositoryProvider) protected readonly repositoryProvider: GitRepositoryProvider,
-        @inject(GitWatcher) protected readonly watcher: GitWatcher,
-        @inject(GitPreferences) protected readonly preferences: GitPreferences,
-        @inject(ILogger) protected readonly logger: ILogger) {
-        this.emitter = new Emitter();
-        this.toDispose = new DisposableCollection();
-        repositoryProvider.onDidChangeRepository(async repository => {
-            this.toDispose.dispose();
-            if (repository) {
-                this.toDispose.pushAll([
-                    await this.watcher.watchGitChanges(repository),
-                    this.watcher.onGitEvent(event => this.fireDidChangeDecorations((tree: Tree) => this.collectDecorators(tree, event.status)))
-                ]);
-            }
-        });
+    @postConstruct()
+    protected init(): void {
+        this.repositories.onGitEvent(event => this.fireDidChangeDecorations((tree: Tree) => this.collectDecorators(tree, event.status)));
         this.preferences.onPreferenceChanged(event => this.handlePreferenceChange(event));
         this.enabled = this.preferences['git.decorations.enabled'];
         this.showColors = this.preferences['git.decorations.colors'];
+    }
+
+    async decorations(tree: Tree): Promise<Map<string, TreeDecoration.Data>> {
+        const status = this.repositories.selectedRepositoryStatus;
+        if (status) {
+            return this.collectDecorators(tree, status);
+        }
+        return new Map();
     }
 
     get onDidChangeDecorations(): Event<(tree: Tree) => Map<string, TreeDecoration.Data>> {
@@ -136,9 +141,9 @@ export class GitDecorator implements TreeDecorator {
 
     protected getDecorationColor(status: GitFileStatus, staged?: boolean): string {
         switch (status) {
-            case GitFileStatus.New: return !!staged ? 'var(--theia-success-color0)' : 'var(--theia-disabled-color0)';
+            case GitFileStatus.New: return 'var(--theia-success-color0)';
             case GitFileStatus.Renamed: // Fall through.
-            case GitFileStatus.Copied: return ' var(--theia-disabled-color0)';
+            case GitFileStatus.Copied: // Fall through.
             case GitFileStatus.Modified: return 'var(--theia-brand-color0)';
             case GitFileStatus.Deleted: return 'var(--theia-warn-color0)';
             case GitFileStatus.Conflicted: return 'var(--theia-error-color0)';
@@ -162,9 +167,8 @@ export class GitDecorator implements TreeDecorator {
                 refresh = true;
             }
         }
-        const repository = this.repositoryProvider.selectedRepository;
-        if (refresh && repository) {
-            const status = await this.git.status(repository);
+        const status = this.repositories.selectedRepositoryStatus;
+        if (refresh && status) {
             this.fireDidChangeDecorations((tree: Tree) => this.collectDecorators(tree, status));
         }
     }

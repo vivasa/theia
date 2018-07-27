@@ -1,11 +1,20 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { MonacoToProtocolConverter, ProtocolToMonacoConverter } from "monaco-languageclient";
+import { MonacoToProtocolConverter, ProtocolToMonacoConverter, TextEdit } from "monaco-languageclient";
 import { ElementExt } from "@phosphor/domutils";
 import URI from "@theia/core/lib/common/uri";
 import { DisposableCollection, Disposable, Emitter, Event } from "@theia/core/lib/common";
@@ -15,12 +24,13 @@ import {
     EditorWidget,
     Position,
     Range,
-    TextEditorDocument,
+    TextDocumentContentChangeDelta,
+    TextDocumentChangeEvent,
     TextEditor,
     RevealRangeOptions,
     RevealPositionOptions,
-    EditorDecorationsService,
     DeltaDecorationParams,
+    ReplaceTextParams,
 } from '@theia/editor/lib/browser';
 import { MonacoEditorModel } from "./monaco-editor-model";
 
@@ -28,8 +38,12 @@ import IEditorConstructionOptions = monaco.editor.IEditorConstructionOptions;
 import IModelDeltaDecoration = monaco.editor.IModelDeltaDecoration;
 import IEditorOverrideServices = monaco.editor.IEditorOverrideServices;
 import IStandaloneCodeEditor = monaco.editor.IStandaloneCodeEditor;
+import IIdentifiedSingleEditOperation = monaco.editor.IIdentifiedSingleEditOperation;
 import IBoxSizing = ElementExt.IBoxSizing;
 import IEditorReference = monaco.editor.IEditorReference;
+import SuggestController = monaco.suggestController.SuggestController;
+import CommonFindController = monaco.findController.CommonFindController;
+import RenameController = monaco.rename.RenameController;
 
 export class MonacoEditor implements TextEditor, IEditorReference {
 
@@ -42,7 +56,7 @@ export class MonacoEditor implements TextEditor, IEditorReference {
     protected readonly onCursorPositionChangedEmitter = new Emitter<Position>();
     protected readonly onSelectionChangedEmitter = new Emitter<Range>();
     protected readonly onFocusChangedEmitter = new Emitter<boolean>();
-    protected readonly onDocumentContentChangedEmitter = new Emitter<TextEditorDocument>();
+    protected readonly onDocumentContentChangedEmitter = new Emitter<TextDocumentChangeEvent>();
 
     readonly documents = new Set<MonacoEditorModel>();
 
@@ -52,10 +66,15 @@ export class MonacoEditor implements TextEditor, IEditorReference {
         readonly node: HTMLElement,
         protected readonly m2p: MonacoToProtocolConverter,
         protected readonly p2m: ProtocolToMonacoConverter,
-        protected readonly decorationsService: EditorDecorationsService,
         options?: MonacoEditor.IOptions,
         override?: IEditorOverrideServices,
     ) {
+        this.toDispose.pushAll([
+            this.onCursorPositionChangedEmitter,
+            this.onSelectionChangedEmitter,
+            this.onFocusChangedEmitter,
+            this.onDocumentContentChangedEmitter
+        ]);
         this.documents.add(document);
         this.autoSizing = options && options.autoSizing !== undefined ? options.autoSizing : false;
         this.minHeight = options && options.minHeight !== undefined ? options.minHeight : -1;
@@ -66,6 +85,7 @@ export class MonacoEditor implements TextEditor, IEditorReference {
     protected create(options?: IEditorConstructionOptions, override?: monaco.editor.IEditorOverrideServices): Disposable {
         return this.editor = monaco.editor.create(this.node, {
             ...options,
+            lightbulb: { enabled: true },
             fixedOverflowWidgets: true,
             scrollbar: {
                 useShadows: false,
@@ -80,9 +100,9 @@ export class MonacoEditor implements TextEditor, IEditorReference {
     protected addHandlers(codeEditor: IStandaloneCodeEditor): void {
         this.toDispose.push(codeEditor.onDidChangeConfiguration(e => this.refresh()));
         this.toDispose.push(codeEditor.onDidChangeModel(e => this.refresh()));
-        this.toDispose.push(codeEditor.onDidChangeModelContent(() => {
+        this.toDispose.push(codeEditor.onDidChangeModelContent(e => {
             this.refresh();
-            this.onDocumentContentChangedEmitter.fire(this.document);
+            this.onDocumentContentChangedEmitter.fire({ document: this.document, contentChanges: e.changes.map(this.mapModelContentChange.bind(this)) });
         }));
         this.toDispose.push(codeEditor.onDidChangeCursorPosition(() =>
             this.onCursorPositionChangedEmitter.fire(this.cursor)
@@ -98,6 +118,14 @@ export class MonacoEditor implements TextEditor, IEditorReference {
         ));
     }
 
+    protected mapModelContentChange(change: monaco.editor.IModelContentChange): TextDocumentContentChangeDelta {
+        return {
+            range: this.m2p.asRange(change.range),
+            rangeLength: change.rangeLength,
+            text: change.text
+        };
+    }
+
     getTargetUri(): URI | undefined {
         return this.uri;
     }
@@ -106,7 +134,7 @@ export class MonacoEditor implements TextEditor, IEditorReference {
         return this.toDispose.onDispose;
     }
 
-    get onDocumentContentChanged(): Event<TextEditorDocument> {
+    get onDocumentContentChanged(): Event<TextDocumentChangeEvent> {
         return this.onDocumentContentChangedEmitter.event;
     }
 
@@ -137,14 +165,14 @@ export class MonacoEditor implements TextEditor, IEditorReference {
         return this.onSelectionChangedEmitter.event;
     }
 
-    revealPosition(raw: Position, options: RevealPositionOptions = { vertical: 'center', horizontal: true }): void {
+    revealPosition(raw: Position, options: RevealPositionOptions = { vertical: 'center' }): void {
         const position = this.p2m.asPosition(raw);
         switch (options.vertical) {
             case 'auto':
-                this.editor.revealPosition(position, false, options.horizontal);
+                this.editor.revealPosition(position);
                 break;
             case 'center':
-                this.editor.revealPosition(position, true, options.horizontal);
+                this.editor.revealPositionInCenter(position);
                 break;
             case 'centerIfOutsideViewport':
                 this.editor.revealPositionInCenterIfOutsideViewport(position);
@@ -188,6 +216,28 @@ export class MonacoEditor implements TextEditor, IEditorReference {
         return this.onFocusChangedEmitter.event;
     }
 
+    /**
+     * `true` if the suggest widget is visible in the editor. Otherwise, `false`.
+     */
+    isSuggestWidgetVisible(): boolean {
+        const widget = this.editor.getContribution<SuggestController>('editor.contrib.suggestController')._widget;
+        return widget ? widget.suggestWidgetVisible.get() : false;
+    }
+
+    /**
+     * `true` if the find (and replace) widget is visible in the editor. Otherwise, `false`.
+     */
+    isFindWidgetVisible(): boolean {
+        return this.editor.getContribution<CommonFindController>('editor.contrib.findController')._findWidgetVisible.get();
+    }
+
+    /**
+     * `true` if the name rename refactoring input HTML element is visible. Otherwise, `false`.
+     */
+    isRenameInputVisible(): boolean {
+        return this.editor.getContribution<RenameController>('editor.contrib.renameController')._renameInputVisible.get();
+    }
+
     dispose() {
         this.toDispose.dispose();
     }
@@ -210,6 +260,7 @@ export class MonacoEditor implements TextEditor, IEditorReference {
 
     protected autoresize() {
         if (this.autoSizing) {
+            // tslint:disable-next-line:no-null-keyword
             this.resize(null);
         }
     }
@@ -294,6 +345,30 @@ export class MonacoEditor implements TextEditor, IEditorReference {
             ...decoration,
             range: this.p2m.asRange(decoration.range),
         });
+    }
+
+    getVisibleColumn(position: Position): number {
+        return this.editor.getVisibleColumnFromPosition(this.p2m.asPosition(position));
+    }
+
+    async replaceText(params: ReplaceTextParams): Promise<boolean> {
+        const edits: IIdentifiedSingleEditOperation[] = params.replaceOperations.map(param => {
+            const range = monaco.Range.fromPositions(this.p2m.asPosition(param.range.start), this.p2m.asPosition(param.range.end));
+            return {
+                forceMoveMarkers: true,
+                identifier: {
+                    major: range.startLineNumber,
+                    minor: range.startColumn
+                },
+                range,
+                text: param.text
+            };
+        });
+        return this.editor.executeEdits(params.source, edits);
+    }
+
+    executeEdits(edits: TextEdit[]): boolean {
+        return this.editor.executeEdits("MonacoEditor", this.p2m.asTextEdits(edits) as IIdentifiedSingleEditOperation[]);
     }
 
 }

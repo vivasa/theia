@@ -1,25 +1,29 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { inject, injectable, postConstruct } from 'inversify';
 import * as jsoncparser from "jsonc-parser";
 import URI from '@theia/core/lib/common/uri';
-import { ILogger, DisposableCollection, Resource, Event, Emitter, ResourceProvider, MaybePromise } from "@theia/core/lib/common";
+import { ILogger, Resource, ResourceProvider, MaybePromise } from "@theia/core/lib/common";
 import { PreferenceProvider } from '@theia/core/lib/browser/preferences';
 
 @injectable()
-export abstract class AbstractResourcePreferenceProvider implements PreferenceProvider {
+export abstract class AbstractResourcePreferenceProvider extends PreferenceProvider {
 
     protected preferences: { [key: string]: any } = {};
-
-    protected readonly onDidPreferencesChangedEmitter = new Emitter<void>();
-    readonly onDidPreferencesChanged: Event<void> = this.onDidPreferencesChangedEmitter.event;
-
-    protected readonly toDispose = new DisposableCollection();
 
     @inject(ILogger) protected readonly logger: ILogger;
 
@@ -30,8 +34,21 @@ export abstract class AbstractResourcePreferenceProvider implements PreferencePr
     @postConstruct()
     protected async init(): Promise<void> {
         const uri = await this.getUri();
+
+        // In case if no workspace is opened there are no workspace settings.
+        // There is nothing to contribute to preferences and we just skip it.
+        if (!uri) {
+            this._ready.resolve();
+            return;
+        }
         this.resource = this.resourceProvider(uri);
-        this.readPreferences();
+
+        // Try to read the initial content of the preferences.  The provider
+        // becomes ready even if we fail reading the preferences, so we don't
+        // hang the preference service.
+        this.readPreferences()
+            .then(() => this._ready.resolve())
+            .catch(() => this._ready.resolve());
 
         const resource = await this.resource;
         this.toDispose.push(resource);
@@ -40,14 +57,23 @@ export abstract class AbstractResourcePreferenceProvider implements PreferencePr
         }
     }
 
-    protected abstract getUri(): MaybePromise<URI>;
-
-    dispose(): void {
-        this.toDispose.dispose();
-    }
+    abstract getUri(): MaybePromise<URI | undefined>;
 
     getPreferences(): { [key: string]: any } {
         return this.preferences;
+    }
+
+    async setPreference(key: string, value: any): Promise<void> {
+        const resource = await this.resource;
+        if (resource.saveContents) {
+            const content = await resource.readContents();
+            const formattingOptions = { tabSize: 3, insertSpaces: true, eol: '' };
+            const edits = jsoncparser.modify(content, [key], value, { formattingOptions });
+            const result = jsoncparser.applyEdits(content, edits);
+
+            await resource.saveContents(result);
+            this.onDidPreferencesChangedEmitter.fire(undefined);
+        }
     }
 
     protected async readPreferences(): Promise<void> {

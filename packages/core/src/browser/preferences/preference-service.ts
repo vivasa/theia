@@ -1,15 +1,29 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { JSONExt } from '@phosphor/coreutils';
 import { injectable, inject } from 'inversify';
 import { FrontendApplicationContribution } from '../../browser';
 import { Event, Emitter, DisposableCollection, Disposable, deepFreeze } from '../../common';
 import { PreferenceProvider } from './preference-provider';
+
+export enum PreferenceScope {
+    User,
+    Workspace
+}
 
 export interface PreferenceChangedEvent {
     changes: PreferenceChange[]
@@ -27,11 +41,12 @@ export interface PreferenceService extends Disposable {
     get<T>(preferenceName: string): T | undefined;
     get<T>(preferenceName: string, defaultValue: T): T;
     get<T>(preferenceName: string, defaultValue?: T): T | undefined;
+    set(preferenceName: string, value: any, scope?: PreferenceScope): Promise<void>;
     onPreferenceChanged: Event<PreferenceChange>;
 }
 
-export const PreferenceProviders = Symbol('PreferenceProvidersFactory');
-export type PreferenceProviders = () => PreferenceProvider[];
+export const PreferenceProviders = Symbol('PreferenceProviders');
+export type PreferenceProviders = (scope: PreferenceScope) => PreferenceProvider;
 
 @injectable()
 export class PreferenceServiceImpl implements PreferenceService, FrontendApplicationContribution {
@@ -43,7 +58,7 @@ export class PreferenceServiceImpl implements PreferenceService, FrontendApplica
     readonly onPreferenceChanged = this.onPreferenceChangedEmitter.event;
 
     @inject(PreferenceProviders)
-    protected readonly createPreferenceProviders: PreferenceProviders;
+    protected readonly getPreferenceProvider: PreferenceProviders;
 
     constructor() {
         this.toDispose.push(this.onPreferenceChangedEmitter);
@@ -52,7 +67,10 @@ export class PreferenceServiceImpl implements PreferenceService, FrontendApplica
     protected _preferenceProviders: PreferenceProvider[] | undefined;
     protected get preferenceProviders(): PreferenceProvider[] {
         if (!this._preferenceProviders) {
-            this._preferenceProviders = this.createPreferenceProviders();
+            this._preferenceProviders = [
+                this.getPreferenceProvider(PreferenceScope.User),
+                this.getPreferenceProvider(PreferenceScope.Workspace)
+            ];
         }
         return this._preferenceProviders;
     }
@@ -65,12 +83,16 @@ export class PreferenceServiceImpl implements PreferenceService, FrontendApplica
     protected _ready: Promise<void> | undefined;
     get ready(): Promise<void> {
         if (!this._ready) {
-            this._ready = new Promise((resolve, reject) => {
+            this._ready = new Promise(async (resolve, reject) => {
                 this.toDispose.push(Disposable.create(() => reject()));
                 for (const preferenceProvider of this.preferenceProviders) {
                     this.toDispose.push(preferenceProvider);
                     preferenceProvider.onDidPreferencesChanged(event => this.reconcilePreferences());
                 }
+
+                // Wait until all the providers are ready to provide preferences.
+                await Promise.all(this.preferenceProviders.map(p => p.ready));
+
                 this.reconcilePreferences();
                 resolve();
             });
@@ -120,6 +142,10 @@ export class PreferenceServiceImpl implements PreferenceService, FrontendApplica
         }
     }
 
+    getPreferences(): { [key: string]: any } {
+        return this.preferences;
+    }
+
     has(preferenceName: string): boolean {
         return this.preferences[preferenceName] !== undefined;
     }
@@ -129,6 +155,10 @@ export class PreferenceServiceImpl implements PreferenceService, FrontendApplica
     get<T>(preferenceName: string, defaultValue?: T): T | undefined {
         const value = this.preferences[preferenceName];
         return value !== null && value !== undefined ? value : defaultValue;
+    }
+
+    set(preferenceName: string, value: any, scope: PreferenceScope = PreferenceScope.User): Promise<void> {
+        return this.getPreferenceProvider(scope).setPreference(preferenceName, value);
     }
 
     getBoolean(preferenceName: string): boolean | undefined;

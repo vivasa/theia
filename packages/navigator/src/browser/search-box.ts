@@ -1,26 +1,28 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { inject, injectable } from 'inversify';
 import { KeyCode, Key } from '@theia/core/lib/browser';
 import { BaseWidget } from '@theia/core/lib/browser/widgets/widget';
 import { Event, Emitter } from '@theia/core/lib/common/event';
-import { SearchBoxDebounce } from './search-box-debounce';
+import { SearchBoxDebounce, SearchBoxDebounceOptions } from './search-box-debounce';
 
 /**
  * Initializer properties for the search box widget.
  */
-@injectable()
-export class SearchBoxProps {
-
-    /**
-     * Debounce delay (in milliseconds) that is used before notifying clients about search data updates.
-     */
-    readonly delay: number;
+export interface SearchBoxProps extends SearchBoxDebounceOptions {
 
     /**
      * If `true`, the `Previous`, `Next`, and `Clone` buttons will be visible. Otherwise, `false`. Defaults to `false`.
@@ -34,16 +36,13 @@ export namespace SearchBoxProps {
     /**
      * The default search box widget option.
      */
-    export const DEFAULT: SearchBoxProps = {
-        delay: 50
-    };
+    export const DEFAULT: SearchBoxProps = SearchBoxDebounceOptions.DEFAULT;
 
 }
 
 /**
  * The search box widget.
  */
-@injectable()
 export class SearchBox extends BaseWidget {
 
     private static SPECIAL_KEYS = [
@@ -57,9 +56,8 @@ export class SearchBox extends BaseWidget {
     protected readonly textChangeEmitter = new Emitter<string | undefined>();
     protected readonly input: HTMLInputElement;
 
-    constructor(
-        @inject(SearchBoxProps) protected readonly props: SearchBoxProps,
-        @inject(SearchBoxDebounce) protected readonly debounce: SearchBoxDebounce) {
+    constructor(protected readonly props: SearchBoxProps,
+        protected readonly debounce: SearchBoxDebounce) {
 
         super();
         this.toDispose.pushAll([
@@ -68,7 +66,7 @@ export class SearchBox extends BaseWidget {
             this.closeEmitter,
             this.textChangeEmitter,
             this.debounce,
-            this.debounce.onChanged(data => this.fireTextChange(data)),
+            this.debounce.onChanged(data => this.fireTextChange(data))
         ]);
         this.hide();
         this.update();
@@ -138,16 +136,13 @@ export class SearchBox extends BaseWidget {
     }
 
     protected handleKey(keyCode: KeyCode) {
-        const { key } = keyCode;
-        if (key) {
-            const character = Key.equals(Key.BACKSPACE, keyCode) ? '\b' : Key.getEasyKey(key).easyString;
-            const data = this.debounce.append(character);
-            if (data) {
-                this.input.value = data;
-                this.update();
-            } else {
-                this.hide();
-            }
+        const character = Key.equals(Key.BACKSPACE, keyCode) ? '\b' : keyCode.character;
+        const data = this.debounce.append(character);
+        if (data) {
+            this.input.value = data;
+            this.update();
+        } else {
+            this.hide();
         }
     }
 
@@ -159,7 +154,7 @@ export class SearchBox extends BaseWidget {
         if (ctrl || alt || meta) {
             return false;
         }
-        if (this.isPrintableChar(keyCode) || (this.isVisible && SearchBox.SPECIAL_KEYS.some(key => Key.equals(key, keyCode)))) {
+        if (keyCode.character || (this.isVisible && SearchBox.SPECIAL_KEYS.some(key => Key.equals(key, keyCode)))) {
             return true;
         }
         return false;
@@ -226,19 +221,6 @@ export class SearchBox extends BaseWidget {
             close
         };
 
-    }
-
-    private isPrintableChar(input: KeyCode): boolean {
-        const { key } = input;
-        if (key) {
-            const { keyCode } = key;
-            return (keyCode > 47 && keyCode < 58)     // number keys
-                || (keyCode > 64 && keyCode < 91)     // letter keys
-                || (keyCode > 95 && keyCode < 112)    // numpad keys
-                || (keyCode > 185 && keyCode < 193)   // ;=,-./` (in order)
-                || (keyCode > 218 && keyCode < 223);  // [\]' (in order)
-        }
-        return false;
     }
 
 }

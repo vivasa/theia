@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { injectable, inject, optional } from 'inversify';
 import { ArrayExt, find, toArray } from '@phosphor/algorithm';
@@ -16,10 +25,11 @@ import { Message } from '@phosphor/messaging';
 import { IDragEvent } from '@phosphor/dragdrop';
 import { RecursivePartial } from '../../common';
 import { Saveable } from '../saveable';
-import { StatusBarImpl, StatusBarLayoutData, StatusBarEntry, StatusBarAlignment } from '../status-bar/status-bar';
+import { StatusBarImpl, StatusBarEntry, StatusBarAlignment } from '../status-bar/status-bar';
 import { SidePanelHandler, SidePanel, SidePanelHandlerFactory, TheiaDockPanel } from './side-panel-handler';
 import { TabBarRendererFactory, TabBarRenderer, SHELL_TABBAR_CONTEXT_MENU, ScrollableTabBar } from './tab-bars';
 import { SplitPositionHandler, SplitPositionOptions } from './split-panels';
+import { FrontendApplicationStateService } from '../frontend-application-state';
 
 /** The class name added to ApplicationShell instances. */
 const APPLICATION_SHELL_CLASS = 'theia-ApplicationShell';
@@ -97,37 +107,43 @@ interface WidgetDragState {
 export class ApplicationShell extends Widget {
 
     /**
-     * General options for the application shell.
-     */
-    protected options: ApplicationShell.Options;
-    /**
      * The dock panel in the main shell area. This is where editors usually go to.
      */
-    protected mainPanel: DockPanel;
-    /**
-     * The fixed-size panel shown on top. This one usually holds the main menu.
-     */
-    protected topPanel: Panel;
+    readonly mainPanel: DockPanel;
+
     /**
      * The dock panel in the bottom shell area. In contrast to the main panel, the bottom panel
      * can be collapsed and expanded.
      */
-    protected bottomPanel: DockPanel;
+    readonly bottomPanel: DockPanel;
+
     /**
      * Handler for the left side panel. The primary application views go here, such as the
      * file explorer and the git view.
      */
-    protected leftPanelHandler: SidePanelHandler;
+    readonly leftPanelHandler: SidePanelHandler;
+
     /**
      * Handler for the right side panel. The secondary application views go here, such as the
      * outline view.
      */
-    protected rightPanelHandler: SidePanelHandler;
+    readonly rightPanelHandler: SidePanelHandler;
+
+    /**
+     * General options for the application shell.
+     */
+    protected options: ApplicationShell.Options;
+
+    /**
+     * The fixed-size panel shown on top. This one usually holds the main menu.
+     */
+    protected topPanel: Panel;
+
     /**
      * The current state of the bottom panel.
      */
     protected readonly bottomPanelState: SidePanel.State = {
-        loading: true,
+        empty: true,
         expansion: SidePanel.ExpansionState.collapsed,
         pendingUpdate: Promise.resolve()
     };
@@ -143,6 +159,7 @@ export class ApplicationShell extends Widget {
         @inject(StatusBarImpl) protected readonly statusBar: StatusBarImpl,
         @inject(SidePanelHandlerFactory) sidePanelHandlerFactory: () => SidePanelHandler,
         @inject(SplitPositionHandler) protected splitPositionHandler: SplitPositionHandler,
+        @inject(FrontendApplicationStateService) protected readonly applicationStateService: FrontendApplicationStateService,
         @inject(ApplicationShellOptions) @optional() options: RecursivePartial<ApplicationShell.Options> = {}
     ) {
         super(options as Widget.IOptions);
@@ -284,6 +301,7 @@ export class ApplicationShell extends Widget {
             const { clientX, clientY } = this.dragState.lastDragOver;
             const event = document.createEvent('MouseEvent');
             event.initMouseEvent('mousemove', true, true, window, 0, 0, 0,
+                // tslint:disable-next-line:no-null-keyword
                 clientX, clientY, false, false, false, false, 0, null);
             document.dispatchEvent(event);
         }
@@ -449,17 +467,6 @@ export class ApplicationShell extends Widget {
     }
 
     /**
-     * Change the state of the application to currently loading (`true`) or ready (`false`).
-     * This has an impact on the behavior of certain operations, e.g. animations are disabled
-     * while loading.
-     */
-    set loading(value: boolean) {
-        this.bottomPanelState.loading = value;
-        this.leftPanelHandler.state.loading = value;
-        this.rightPanelHandler.state.loading = value;
-    }
-
-    /**
      * Create an object that describes the current shell layout. This object may contain references
      * to widgets; these need to be transformed before the layout can be serialized.
      */
@@ -474,7 +481,6 @@ export class ApplicationShell extends Widget {
             },
             leftPanel: this.leftPanelHandler.getLayoutData(),
             rightPanel: this.rightPanelHandler.getLayoutData(),
-            statusBar: this.statusBar.getLayoutData(),
             activeWidgetId: this.activeWidget ? this.activeWidget.id : undefined
         };
     }
@@ -510,12 +516,18 @@ export class ApplicationShell extends Widget {
     /**
      * Apply a shell layout that has been previously created with `getLayoutData`.
      */
-    setLayoutData(layoutData: ApplicationShell.LayoutData): void {
-        const { mainPanel, bottomPanel, leftPanel, rightPanel, statusBar, activeWidgetId } = this.getValidatedLayoutData(layoutData);
-        if (mainPanel) {
-            this.mainPanel.restoreLayout(mainPanel);
-            this.registerWithFocusTracker(mainPanel.main);
+    async setLayoutData(layoutData: ApplicationShell.LayoutData): Promise<void> {
+        const { mainPanel, bottomPanel, leftPanel, rightPanel, activeWidgetId } = this.getValidatedLayoutData(layoutData);
+        if (leftPanel) {
+            this.leftPanelHandler.setLayoutData(leftPanel);
+            this.registerWithFocusTracker(leftPanel);
         }
+        if (rightPanel) {
+            this.rightPanelHandler.setLayoutData(rightPanel);
+            this.registerWithFocusTracker(rightPanel);
+        }
+        // Proceed with the bottom panel once the side panels are set up
+        await Promise.all([this.leftPanelHandler.state.pendingUpdate, this.rightPanelHandler.state.pendingUpdate]);
         if (bottomPanel) {
             if (bottomPanel.config) {
                 this.bottomPanel.restoreLayout(bottomPanel.config);
@@ -529,17 +541,13 @@ export class ApplicationShell extends Widget {
             } else {
                 this.collapseBottomPanel();
             }
+            this.refreshBottomPanelToggleButton();
         }
-        if (leftPanel) {
-            this.leftPanelHandler.setLayoutData(leftPanel);
-            this.registerWithFocusTracker(leftPanel);
-        }
-        if (rightPanel) {
-            this.rightPanelHandler.setLayoutData(rightPanel);
-            this.registerWithFocusTracker(rightPanel);
-        }
-        if (statusBar) {
-            this.statusBar.setLayoutData(statusBar);
+        // Proceed with the main panel once all others are set up
+        await this.bottomPanelState.pendingUpdate;
+        if (mainPanel) {
+            this.mainPanel.restoreLayout(mainPanel);
+            this.registerWithFocusTracker(mainPanel.main);
         }
         if (activeWidgetId) {
             this.activateWidget(activeWidgetId);
@@ -558,9 +566,10 @@ export class ApplicationShell extends Widget {
      * bottom panel is a `SplitPanel`.
      */
     protected setBottomPanelSize(size: number): Promise<void> {
+        const enableAnimation = this.applicationStateService.state === 'ready';
         const options: SplitPositionOptions = {
             side: 'bottom',
-            duration: this.bottomPanelState.loading ? 0 : this.options.bottomPanel.expandDuration,
+            duration: enableAnimation ? this.options.bottomPanel.expandDuration : 0,
             referenceWidget: this.bottomPanel
         };
         const promise = this.splitPositionHandler.setSidePanelSize(this.bottomPanel, size, options);
@@ -580,6 +589,7 @@ export class ApplicationShell extends Widget {
             this.bottomPanelState.pendingUpdate,
             this.leftPanelHandler.state.pendingUpdate,
             this.rightPanelHandler.state.pendingUpdate
+            // tslint:disable-next-line:no-any
         ]) as Promise<any>;
     }
 
@@ -693,7 +703,7 @@ export class ApplicationShell extends Widget {
     /**
      * Handle a change to the current widget.
      */
-    private onCurrentChanged(sender: any, args: FocusTracker.IChangedArgs<Widget>): void {
+    private onCurrentChanged(sender: FocusTracker<Widget>, args: FocusTracker.IChangedArgs<Widget>): void {
         this.currentChanged.emit(args);
     }
 
@@ -705,12 +715,13 @@ export class ApplicationShell extends Widget {
     /**
      * Handle a change to the active widget.
      */
-    private onActiveChanged(sender: any, args: FocusTracker.IChangedArgs<Widget>): void {
+    private onActiveChanged(sender: FocusTracker<Widget>, args: FocusTracker.IChangedArgs<Widget>): void {
         const { newValue, oldValue } = args;
         if (oldValue) {
             // Remove the mark of the previously active widget
             oldValue.title.className = oldValue.title.className.replace(' theia-mod-active', '');
             // Reset the z-index to the default
+            // tslint:disable-next-line:no-null-keyword
             this.setZIndex(oldValue.node, null);
         }
         if (newValue) {
@@ -763,22 +774,38 @@ export class ApplicationShell extends Widget {
         let widget = find(this.mainPanel.widgets(), w => w.id === id);
         if (widget) {
             this.mainPanel.activateWidget(widget);
-            return widget;
+            return this.checkActivation(widget);
         }
         widget = find(this.bottomPanel.widgets(), w => w.id === id);
         if (widget) {
             this.expandBottomPanel();
             this.bottomPanel.activateWidget(widget);
-            return widget;
+            return this.checkActivation(widget);
         }
         widget = this.leftPanelHandler.activate(id);
         if (widget) {
-            return widget;
+            return this.checkActivation(widget);
         }
         widget = this.rightPanelHandler.activate(id);
         if (widget) {
-            return widget;
+            return this.checkActivation(widget);
         }
+    }
+
+    /**
+     * Focus is taken by a widget through the `onActivateRequest` method. It is up to the
+     * widget implementation which DOM element will get the focus. The default implementation
+     * of Widget does not take any focus. This method can help finding such problems by logging
+     * a warning in case a widget was explicitly activated, but did not trigger a change of the
+     * `activeWidget` property.
+     */
+    private checkActivation(widget: Widget): Widget {
+        window.requestAnimationFrame(() => {
+            if (this.activeWidget !== widget) {
+                console.warn("Widget was activated, but did not accept focus: " + widget.id);
+            }
+        });
+        return widget;
     }
 
     /**
@@ -831,6 +858,32 @@ export class ApplicationShell extends Widget {
                 break;
             default:
                 throw new Error('Area cannot be expanded: ' + area);
+        }
+    }
+
+    /**
+     * Adjusts the size of the given area in the application shell.
+     *
+     * @param size the desired size of the panel in pixels.
+     * @param area the area to resize.
+     */
+    resize(size: number, area: ApplicationShell.Area): void {
+        switch (area) {
+            case 'bottom':
+                if (this.bottomPanel.isHidden) {
+                    this.bottomPanelState.lastPanelSize = size;
+                } else {
+                    this.setBottomPanelSize(size);
+                }
+                break;
+            case 'left':
+                this.leftPanelHandler.resize(size);
+                break;
+            case 'right':
+                this.rightPanelHandler.resize(size);
+                break;
+            default:
+                throw new Error('Area cannot be resized: ' + area);
         }
     }
 
@@ -1071,6 +1124,13 @@ export class ApplicationShell extends Widget {
         return toArray(this.bottomPanel.tabBars());
     }
 
+    /**
+     * The tab bars contained in all shell areas.
+     */
+    get allTabBars(): TabBar<Widget>[] {
+        return [...this.mainAreaTabBars, ...this.bottomAreaTabBars, this.leftPanelHandler.tabBar, this.rightPanelHandler.tabBar];
+    }
+
     /*
      * Activate the next tab in the current tab bar.
      */
@@ -1260,7 +1320,6 @@ export namespace ApplicationShell {
         bottomPanel?: BottomPanelLayoutData;
         leftPanel?: SidePanel.LayoutData;
         rightPanel?: SidePanel.LayoutData;
-        statusBar?: StatusBarLayoutData;
         activeWidgetId?: string;
     }
 

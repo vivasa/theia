@@ -1,12 +1,21 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { ContainerModule } from 'inversify';
-import { KeybindingContext, bindViewContribution } from "@theia/core/lib/browser";
+import { KeybindingContext, bindViewContribution, FrontendApplicationContribution } from "@theia/core/lib/browser";
 import { FileNavigatorWidget, FILE_NAVIGATOR_ID } from "./navigator-widget";
 import { NavigatorActiveContext } from './navigator-keybinding-context';
 import { FileNavigatorContribution } from './navigator-contribution';
@@ -14,11 +23,9 @@ import { createFileNavigatorWidget } from "./navigator-container";
 import { WidgetFactory } from '@theia/core/lib/browser/widget-manager';
 import { bindFileNavigatorPreferences } from './navigator-preferences';
 import { FileNavigatorFilter } from './navigator-filter';
-import { NavigatorTreeDecorator } from './navigator-decorator-service';
 import { FuzzySearch } from './fuzzy-search';
-import { FileNavigatorSearch } from './navigator-search';
 import { SearchBox, SearchBoxProps, SearchBoxFactory } from './search-box';
-import { SearchBoxDebounce, SearchBoxDebounceOptions } from './search-box-debounce';
+import { SearchBoxDebounce } from './search-box-debounce';
 import '../../src/browser/style/index.css';
 
 export default new ContainerModule(bind => {
@@ -26,22 +33,15 @@ export default new ContainerModule(bind => {
     bind(FileNavigatorFilter).toSelf().inSingletonScope();
 
     bindViewContribution(bind, FileNavigatorContribution);
+    bind(FrontendApplicationContribution).toService(FileNavigatorContribution);
 
     bind(KeybindingContext).to(NavigatorActiveContext).inSingletonScope();
 
     bind(FuzzySearch).toSelf().inSingletonScope();
-    bind(FileNavigatorSearch).toSelf().inSingletonScope();
-    bind(NavigatorTreeDecorator).toService(FileNavigatorSearch);
-    bind(SearchBoxDebounceOptions).toConstantValue(SearchBoxDebounceOptions.DEFAULT);
-    bind(SearchBoxDebounce).toSelf();
-    bind(SearchBox).toSelf();
     bind(SearchBoxFactory).toFactory(context =>
-        (props: SearchBoxProps) => {
-            const { container } = context;
-            const { delay } = props;
-            container.bind(SearchBoxDebounceOptions).toConstantValue({ delay });
-            container.bind(SearchBoxProps).toConstantValue(props);
-            return container.get(SearchBox);
+        (options: SearchBoxProps) => {
+            const debounce = new SearchBoxDebounce(options);
+            return new SearchBox(options, debounce);
         }
     );
 

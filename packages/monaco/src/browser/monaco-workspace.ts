@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 // tslint:disable:no-null-keyword
 
@@ -179,15 +188,19 @@ export class MonacoWorkspace implements lang.Workspace {
         disposables.push(onFileEventEmitter);
         disposables.push(this.fileSystemWatcher.onFilesChanged(changes => {
             for (const change of changes) {
-                const result: [lang.FileChangeType, boolean | undefined] =
-                    change.type === FileChangeType.ADDED ? [lang.FileChangeType.Created, ignoreCreateEvents] :
-                        change.type === FileChangeType.UPDATED ? [lang.FileChangeType.Changed, ignoreChangeEvents] :
-                            [lang.FileChangeType.Deleted, ignoreDeleteEvents];
-
-                const type = result[0];
-                const ignoreEvents = result[1];
+                const fileChangeType = change.type;
+                if (ignoreCreateEvents === true && fileChangeType === FileChangeType.ADDED) {
+                    continue;
+                }
+                if (ignoreChangeEvents === true && fileChangeType === FileChangeType.UPDATED) {
+                    continue;
+                }
+                if (ignoreDeleteEvents === true && fileChangeType === FileChangeType.DELETED) {
+                    continue;
+                }
                 const uri = change.uri.toString();
-                if (ignoreEvents === undefined && ignoreEvents === false && testGlob(globPattern, uri)) {
+                if (testGlob(globPattern, uri)) {
+                    const type = this.mapChangeType(fileChangeType);
                     onFileEventEmitter.fire({ uri, type });
                 }
             }
@@ -197,6 +210,15 @@ export class MonacoWorkspace implements lang.Workspace {
             onFileEvent,
             dispose: () => disposables.dispose()
         };
+    }
+
+    protected mapChangeType(type: FileChangeType): lang.FileChangeType {
+        switch (type) {
+            case FileChangeType.ADDED: return lang.FileChangeType.Created;
+            case FileChangeType.UPDATED: return lang.FileChangeType.Changed;
+            case FileChangeType.DELETED: return lang.FileChangeType.Deleted;
+            default: throw new Error(`Unexpected file change type: ${type}.`);
+        }
     }
 
     async applyEdit(changes: lang.WorkspaceEdit): Promise<boolean> {
@@ -213,7 +235,7 @@ export class MonacoWorkspace implements lang.Workspace {
                     identifier: undefined!,
                     forceMoveMarkers: false,
                     range: new monaco.Range(edit.range.startLineNumber, edit.range.startColumn, edit.range.endLineNumber, edit.range.endColumn),
-                    text: edit.newText
+                    text: edit.text
                 }));
                 // start a fresh operation
                 model.pushStackElement();
@@ -226,11 +248,12 @@ export class MonacoWorkspace implements lang.Workspace {
     }
 
     protected groupEdits(workspaceEdit: monaco.languages.WorkspaceEdit) {
-        const result = new Map<string, monaco.languages.IResourceEdit[]>();
+        const result = new Map<string, monaco.languages.TextEdit[]>();
         for (const edit of workspaceEdit.edits) {
-            const uri = edit.resource.toString();
+            const resourceTextEdit = edit as monaco.languages.ResourceTextEdit;
+            const uri = resourceTextEdit.resource.toString();
             const edits = result.get(uri) || [];
-            edits.push(edit);
+            edits.push(...resourceTextEdit.edits);
             result.set(uri, edits);
         }
         return result;

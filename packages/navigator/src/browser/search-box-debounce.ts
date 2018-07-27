@@ -1,20 +1,28 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { inject, injectable } from 'inversify';
 import { Event, Emitter } from '@theia/core/lib/common/event';
 import { Disposable, DisposableCollection } from '@theia/core/lib/common/disposable';
-import { debounce } from 'throttle-debounce';
+
+import debounce = require('lodash.debounce');
 
 /**
  * Options for the search term debounce.
  */
-@injectable()
-export class SearchBoxDebounceOptions {
+export interface SearchBoxDebounceOptions {
 
     /**
      * The delay (in milliseconds) before the debounce notifies clients about its content change.
@@ -37,7 +45,6 @@ export namespace SearchBoxDebounceOptions {
 /**
  * It notifies the clients, once if the underlying search term has changed after a given amount of delay.
  */
-@injectable()
 export class SearchBoxDebounce implements Disposable {
 
     protected readonly disposables = new DisposableCollection();
@@ -46,9 +53,9 @@ export class SearchBoxDebounce implements Disposable {
 
     protected state: string | undefined;
 
-    constructor(@inject(SearchBoxDebounceOptions) protected readonly options: SearchBoxDebounceOptions) {
+    constructor(protected readonly options: SearchBoxDebounceOptions) {
         this.disposables.push(this.emitter);
-        this.handler = debounce(this.options.delay, () => this.fireChanged(this.state)).bind(this);
+        this.handler = debounce(() => this.fireChanged(this.state), this.options.delay).bind(this);
     }
 
     append(input: string | undefined): string | undefined {

@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { injectable, inject } from 'inversify';
 import { find, map, toArray, some } from '@phosphor/algorithm';
@@ -14,6 +23,7 @@ import { Drag } from '@phosphor/dragdrop';
 import { AttachedProperty } from '@phosphor/properties';
 import { TabBarRendererFactory, TabBarRenderer, SHELL_TABBAR_CONTEXT_MENU, SideTabBar } from './tab-bars';
 import { SplitPositionHandler, SplitPositionOptions } from './split-panels';
+import { FrontendApplicationStateService } from '../frontend-application-state';
 
 /** The class name added to the left and right area panels. */
 export const LEFT_RIGHT_AREA_CLASS = 'theia-app-sides';
@@ -60,7 +70,7 @@ export class SidePanelHandler {
      * The current state of the side panel.
      */
     readonly state: SidePanel.State = {
-        loading: true,
+        empty: true,
         expansion: SidePanel.ExpansionState.collapsed,
         pendingUpdate: Promise.resolve()
     };
@@ -77,6 +87,7 @@ export class SidePanelHandler {
 
     @inject(TabBarRendererFactory) protected tabBarRendererFactory: () => TabBarRenderer;
     @inject(SplitPositionHandler) protected splitPositionHandler: SplitPositionHandler;
+    @inject(FrontendApplicationStateService) protected readonly applicationStateService: FrontendApplicationStateService;
 
     /**
      * Create the side bar and dock panel widgets.
@@ -183,6 +194,7 @@ export class SidePanelHandler {
      * Apply a side panel layout that has been previously created with `getLayoutData`.
      */
     setLayoutData(layoutData: SidePanel.LayoutData): void {
+        // tslint:disable-next-line:no-null-keyword
         this.tabBar.currentTitle = null;
 
         let currentTitle: Title<Widget> | undefined;
@@ -283,6 +295,7 @@ export class SidePanelHandler {
      */
     collapse(): void {
         if (this.tabBar.currentTitle) {
+            // tslint:disable-next-line:no-null-keyword
             this.tabBar.currentTitle = null;
         } else {
             this.refresh();
@@ -309,14 +322,14 @@ export class SidePanelHandler {
         const parent = container.parent;
         const tabBar = this.tabBar;
         const dockPanel = this.dockPanel;
-        const hideSideBar = tabBar.titles.length === 0;
+        const isEmpty = tabBar.titles.length === 0;
         const currentTitle = tabBar.currentTitle;
         const hideDockPanel = currentTitle === null;
         let relativeSizes: number[] | undefined;
 
         if (hideDockPanel) {
             container.addClass(COLLAPSED_CLASS);
-            if (this.state.expansion === SidePanel.ExpansionState.expanded && !hideSideBar) {
+            if (this.state.expansion === SidePanel.ExpansionState.expanded && !this.state.empty) {
                 // Update the lastPanelSize property
                 const size = this.getPanelSize();
                 if (size) {
@@ -349,15 +362,29 @@ export class SidePanelHandler {
                 this.state.expansion = SidePanel.ExpansionState.expanded;
             }
         }
-        container.setHidden(hideSideBar && hideDockPanel);
-        tabBar.setHidden(hideSideBar);
+        container.setHidden(isEmpty && hideDockPanel);
+        tabBar.setHidden(isEmpty);
         dockPanel.setHidden(hideDockPanel);
+        this.state.empty = isEmpty;
         if (currentTitle) {
             dockPanel.selectWidget(currentTitle.owner);
         }
         if (relativeSizes && parent instanceof SplitPanel) {
             // Make sure that the expansion animation starts at the smallest possible size
             parent.setRelativeSizes(relativeSizes);
+        }
+    }
+
+    /**
+     * Sets the size of the side panel.
+     *
+     * @param size the desired size (width) of the panel in pixels.
+     */
+    resize(size: number): void {
+        if (this.dockPanel.isHidden) {
+            this.state.lastPanelSize = size;
+        } else {
+            this.setPanelSize(size);
         }
     }
 
@@ -399,9 +426,10 @@ export class SidePanelHandler {
      * container is a `SplitPanel`.
      */
     protected setPanelSize(size: number): Promise<void> {
+        const enableAnimation = this.applicationStateService.state === 'ready';
         const options: SplitPositionOptions = {
             side: this.side,
-            duration: this.state.loading ? 0 : this.options.expandDuration,
+            duration: enableAnimation ? this.options.expandDuration : 0,
             referenceWidget: this.dockPanel
         };
         const promise = this.splitPositionHandler.setSidePanelSize(this.container, size, options);
@@ -435,12 +463,14 @@ export class SidePanelHandler {
         sender.releaseMouse();
 
         // Clone the selected tab and use that as drag image
+        // tslint:disable:no-null-keyword
         const clonedTab = tab.cloneNode(true) as HTMLElement;
         clonedTab.style.width = null;
         clonedTab.style.height = null;
         const label = clonedTab.getElementsByClassName('p-TabBar-tabLabel')[0] as HTMLElement;
         label.style.width = null;
         label.style.height = null;
+        // tslint:enable:no-null-keyword
 
         // Create and start a drag to move the selected tab to another panel
         const mimeData = new MimeData();
@@ -548,10 +578,9 @@ export namespace SidePanel {
 
     export interface State {
         /**
-         * This flag indicates whether the application is loading. This has an impact on the behavior
-         * of side panels, e.g. no animations are shown while loading.
+         * Indicates whether the panel is empty.
          */
-        loading: boolean;
+        empty: boolean;
         /**
          * Indicates whether the panel is expanded, collapsed, or in a transition between the two.
          */

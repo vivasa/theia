@@ -1,12 +1,21 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { inject, injectable, postConstruct } from 'inversify';
-import { EditorManager, EditorWidget, TextEditor, TextEditorDocument } from '@theia/editor/lib/browser';
+import { EditorManager, EditorWidget, TextEditor, TextEditorDocument, TextDocumentChangeEvent } from '@theia/editor/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 import { DiffComputer, DirtyDiff } from './diff-computer';
 import { Emitter, Event, Disposable, DisposableCollection } from '@theia/core';
@@ -63,7 +72,7 @@ export class DirtyDiffManager {
         const model = this.createNewModel(editor);
         toDispose.push(model);
         this.models.set(uri, model);
-        toDispose.push(editor.onDocumentContentChanged(throttle((document: TextEditorDocument) => model.handleDocumentChanged(document), 1000)));
+        toDispose.push(editor.onDocumentContentChanged(throttle((event: TextDocumentChangeEvent) => model.handleDocumentChanged(event.document), 1000)));
         editorWidget.disposed.connect(() => {
             this.models.delete(uri);
             toDispose.dispose();
@@ -213,7 +222,7 @@ export class DirtyDiffModel implements Disposable {
         };
         if (isModified || isNewAndStaged) {
             this.staged = isNewAndStaged || modifiedChange!.staged || false;
-            readPreviousRevisionContent();
+            await readPreviousRevisionContent();
         }
         if (isNewAndUnstaged && !isNewAndStaged) {
             this.previousContent = undefined;
@@ -221,7 +230,7 @@ export class DirtyDiffModel implements Disposable {
         if (noRelevantChanges) {
             const inGitRepository = await this.isInGitRepository(repository);
             if (inGitRepository) {
-                readPreviousRevisionContent();
+                await readPreviousRevisionContent();
             }
         }
         this.update();

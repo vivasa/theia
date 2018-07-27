@@ -1,13 +1,35 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import * as os from 'os';
 import * as fs from 'fs-extra';
+import * as yargs from 'yargs';
 import { ApplicationPackage } from '@theia/application-package';
+
+const argv = yargs.option('mode', {
+    description: 'Mode to use',
+    choices: ['development', 'production'],
+    default: 'production'
+}).option('split-frontend', {
+    description: 'Split frontend modules into separate chunks. By default enabled in the dev mode and disabled in the prod mode.',
+    type: 'boolean',
+    default: undefined
+}).argv;
+const mode: 'development' | 'production' = argv.mode;
+const splitFrontend: boolean = argv['split-frontend'] === undefined ? mode === 'development' : argv['split-frontend'];
 
 export abstract class AbstractGenerator {
 
@@ -16,7 +38,7 @@ export abstract class AbstractGenerator {
     ) { }
 
     protected compileFrontendModuleImports(modules: Map<string, string>): string {
-        return this.compileModuleImports(modules, 'require');
+        return this.compileModuleImports(modules, splitFrontend ? 'import' : 'require');
     }
 
     protected compileBackendModuleImports(modules: Map<string, string>): string {

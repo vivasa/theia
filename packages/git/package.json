@@ -1,18 +1,18 @@
 {
   "name": "@theia/git",
-  "version": "0.3.8",
+  "version": "0.3.13",
   "description": "Theia - Git Integration",
   "dependencies": {
-    "@theia/core": "^0.3.8",
-    "@theia/editor": "^0.3.8",
-    "@theia/filesystem": "^0.3.8",
-    "@theia/languages": "^0.3.8",
-    "@theia/navigator": "^0.3.8",
-    "@theia/workspace": "^0.3.8",
+    "@theia/core": "^0.3.13",
+    "@theia/editor": "^0.3.13",
+    "@theia/filesystem": "^0.3.13",
+    "@theia/languages": "^0.3.13",
+    "@theia/navigator": "^0.3.13",
+    "@theia/workspace": "^0.3.13",
     "@types/diff": "^3.2.2",
     "@types/fs-extra": "^4.0.2",
     "diff": "^3.4.0",
-    "dugite-extra": "0.0.1-alpha.20",
+    "dugite-extra": "0.0.1-alpha.23",
     "find-git-repositories": "^0.1.0",
     "fs-extra": "^4.0.2",
     "moment": "^2.21.0",
@@ -31,7 +31,7 @@
   "keywords": [
     "theia-extension"
   ],
-  "license": "Apache-2.0",
+  "license": "EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/theia-ide/theia.git"
@@ -54,7 +54,7 @@
     "docs": "theiaext docs"
   },
   "devDependencies": {
-    "@theia/ext-scripts": "^0.3.8",
+    "@theia/ext-scripts": "^0.3.13",
     "upath": "^1.0.2"
   },
   "nyc": {

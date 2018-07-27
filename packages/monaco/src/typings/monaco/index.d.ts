@@ -1,3 +1,19 @@
+/********************************************************************************
+ * Copyright (C) 2018 TypeFox and others.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
+
 /// <reference types='monaco-editor-core/monaco'/>
 
 declare module monaco.instantiation {
@@ -10,14 +26,18 @@ declare module monaco.editor {
     export interface IDiffNavigator {
         readonly ranges: IDiffRange[];
         readonly nextIdx: number;
-        initIdx(fwd: boolean): void;
+        readonly revealFirst: boolean;
+        _initIdx(fwd: boolean): void;
     }
 
     export interface IDiffRange {
         readonly range: Range;
     }
 
-    export interface ICommonCodeEditor {
+    export interface IStandaloneCodeEditor extends CommonCodeEditor {
+    }
+
+    export interface CommonCodeEditor {
         readonly _commandService: monaco.commands.ICommandService;
         readonly _instantiationService: monaco.instantiation.IInstantiationService;
         readonly _contributions: {
@@ -62,7 +82,7 @@ declare module monaco.editor {
     }
 
     export interface IEditorReference {
-        getControl(): monaco.editor.ICommonCodeEditor;
+        getControl(): monaco.editor.CommonCodeEditor;
     }
 
     export interface IEditorInput {
@@ -304,10 +324,55 @@ declare module monaco.services {
         get(overrides?: monaco.editor.IEditorOverrideServices): T;
     }
 
-    export interface IStandaloneThemeService extends monaco.theme.IThemeService { }
+    export interface IStandaloneThemeService extends monaco.theme.IThemeService {
+        getTheme(): IStandaloneTheme;
+    }
+
+    export interface IStandaloneTheme {
+        tokenTheme: TokenTheme;
+    }
+
+    export interface TokenTheme {
+        match(languageId: string | undefined, scope: string): number;
+        getColorMap(): Color[];
+    }
+
+    export interface Color {
+        rgba: RGBA;
+    }
+
+    export interface RGBA {
+        r: number;
+        g: number;
+        b: number;
+        a: number;
+    }
+
+    export enum LanguageId {
+        Null = 0,
+        PlainText = 1
+    }
+
+    export class LanguageIdentifier {
+        /**
+         * A string identifier. Unique across languages. e.g. 'javascript'.
+         */
+        readonly language: string;
+
+        /**
+         * A numeric identifier. Unique across languages. e.g. 5
+         * Will vary at runtime based on registration order, etc.
+         */
+        readonly id: LanguageId;
+    }
+
+    export interface IModeService {
+        getLanguageIdentifier(modeId: string | LanguageId): LanguageIdentifier;
+    }
 
     export module StaticServices {
         export const standaloneThemeService: LazyStaticService<IStandaloneThemeService>;
+        export const modeService: LazyStaticService<IModeService>;
     }
 }
 
@@ -366,6 +431,10 @@ declare module monaco.quickOpen {
         layout(dimension: monaco.editor.IDimension): void;
         show(prefix: string, options?: IShowOptions): void;
         hide(reason?: HideReason): void;
+        refresh(input?: IModel<any>, autoFocus?: IAutoFocus): void;
+        setPassword(isPassword: boolean): void;
+        showInputDecoration(decoration: Severity): void;
+        clearInputDecoration(): void;
     }
 
     export enum HideReason {
@@ -499,9 +568,10 @@ declare module monaco.quickOpen {
         setHighlights(labelHighlights: IHighlight[], descriptionHighlights?: IHighlight[], detailHighlights?: IHighlight[]): void;
         getHighlights(): [IHighlight[] /* Label */, IHighlight[] /* Description */, IHighlight[] /* Detail */];
         run(mode: Mode, context: IEntryRunContext): boolean;
-        static compare(elementA: QuickOpenEntry, elementB: QuickOpenEntry, lookFor: string): number;
-        static highlight(entry: QuickOpenEntry, lookFor: string, fuzzyHighlight?: boolean): { labelHighlights: IHighlight[], descriptionHighlights: IHighlight[] };
     }
+
+    export function compareEntries(elementA: QuickOpenEntry, elementB: QuickOpenEntry, lookFor: string): number;
+
     export class QuickOpenEntryGroup extends QuickOpenEntry {
         constructor(entry?: QuickOpenEntry, groupLabel?: string, withBorder?: boolean);
         getGroupLabel(): string;
@@ -547,7 +617,7 @@ declare module monaco.filters {
     export function matchesFuzzy(word: string, wordToMatchAgainst: string, enableSeparateSubstringMatching?: boolean): IMatch[] | undefined;
 }
 
-declare module monaco.editorCommonExtensions {
+declare module monaco.editorExtensions {
 
     export interface EditorAction {
         id: string;
@@ -555,11 +625,27 @@ declare module monaco.editorCommonExtensions {
         alias: string;
     }
 
-    export module CommonEditorRegistry {
+    export module EditorExtensionsRegistry {
         export function getEditorActions(): EditorAction[];
     }
 }
 declare module monaco.modes {
+
+    export class TokenMetadata {
+
+        public static getLanguageId(metadata: number): number;
+
+        public static getFontStyle(metadata: number): number;
+
+        public static getForeground(metadata: number): number;
+
+        public static getBackground(metadata: number): number;
+
+        public static getClassNameFromMetadata(metadata: number): string;
+
+        public static getInlineStyleFromMetadata(metadata: number, colorMap: string[]): string;
+    }
+
     export interface LanguageFeatureRegistry<T> {
         has(model: monaco.editor.IReadOnlyModel): boolean;
         all(model: monaco.editor.IReadOnlyModel): T[];
@@ -615,6 +701,64 @@ declare module monaco.cancellation {
         token: CancellationToken;
         cancel(): void;
         dispose(): void;
+    }
+
+}
+
+declare module monaco.suggestController {
+
+    export class SuggestWidget {
+        suggestWidgetVisible: {
+            get(): boolean;
+        };
+    }
+
+    export class SuggestController {
+
+        getId(): string;
+        dispose(): void;
+
+        /**
+         * This is a hack. The widget has a `private` visibility in the VSCode source.
+         */
+        readonly _widget: SuggestWidget | undefined;
+
+    }
+
+}
+
+declare module monaco.findController {
+
+    export class CommonFindController {
+
+        getId(): string;
+        dispose(): void;
+
+        /**
+         * Hack for checking whether the find (and replace) widget is visible in code editor or not.
+         */
+        readonly _findWidgetVisible: {
+            get(): boolean;
+        };
+
+    }
+
+}
+
+declare module monaco.rename {
+
+    export class RenameController {
+
+        getId(): string;
+        dispose(): void;
+
+        /**
+         * Hack for checking whether the rename input HTML element is visible in the code editor or not. In VSCode source this is has `private` visibility.
+         */
+        readonly _renameInputVisible: {
+            get(): boolean;
+        };
+
     }
 
 }

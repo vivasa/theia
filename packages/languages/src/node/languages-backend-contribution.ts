@@ -1,38 +1,43 @@
-/*
- * Copyright (C) 2017 TypeFox and others.
+/********************************************************************************
+ * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import * as http from 'http';
-import * as https from 'https';
 import { injectable, inject, named } from "inversify";
-import { createWebSocketConnection } from "vscode-ws-jsonrpc/lib/server";
 import { ContributionProvider } from '@theia/core/lib/common';
-import { BackendApplicationContribution } from '@theia/core/lib/node';
-import { openJsonRpcSocket } from '@theia/core/lib/node';
 import { LanguageServerContribution, LanguageContribution } from "./language-server-contribution";
 import { ILogger } from '@theia/core/lib/common/logger';
+import { MessagingService } from '@theia/core/lib/node/messaging/messaging-service';
 
 @injectable()
-export class LanguagesBackendContribution implements BackendApplicationContribution {
+export class LanguagesBackendContribution implements MessagingService.Contribution {
 
-    constructor(
-        @inject(ContributionProvider) @named(LanguageServerContribution) protected readonly contributors: ContributionProvider<LanguageServerContribution>,
-        @inject(ILogger) protected logger: ILogger
-    ) { }
+    @inject(ILogger) @named('languages')
+    protected readonly logger: ILogger;
 
-    onStart(server: http.Server | https.Server): void {
+    @inject(ContributionProvider) @named(LanguageServerContribution)
+    protected readonly contributors: ContributionProvider<LanguageServerContribution>;
+
+    configure(service: MessagingService): void {
         for (const contribution of this.contributors.getContributions()) {
             const path = LanguageContribution.getPath(contribution);
-            openJsonRpcSocket({ server, path }, socket => {
+            service.forward(path, (params, connection) => {
                 try {
-                    const connection = createWebSocketConnection(socket);
                     contribution.start(connection);
                 } catch (e) {
                     this.logger.error(`Error occurred while starting language contribution. ${path}.`, e);
-                    socket.dispose();
+                    connection.dispose();
                     throw e;
                 }
             });

@@ -1,15 +1,24 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { injectable, inject } from "inversify";
 import SymbolInformation = monaco.modes.SymbolInformation;
 import SymbolKind = monaco.modes.SymbolKind;
 import { FrontendApplicationContribution, FrontendApplication, TreeNode } from "@theia/core/lib/browser";
-import { Range, EditorManager, EditorWidget } from '@theia/editor/lib/browser';
+import { Range, EditorManager } from '@theia/editor/lib/browser';
 import DocumentSymbolProviderRegistry = monaco.modes.DocumentSymbolProviderRegistry;
 import CancellationTokenSource = monaco.cancellation.CancellationTokenSource;
 import { DisposableCollection } from "@theia/core";
@@ -18,33 +27,33 @@ import { OutlineSymbolInformationNode } from '@theia/outline-view/lib/browser/ou
 import URI from "@theia/core/lib/common/uri";
 import { MonacoEditor } from './monaco-editor';
 
+import debounce = require('lodash.debounce');
+
 @injectable()
 export class MonacoOutlineContribution implements FrontendApplicationContribution {
 
-    protected ids: string[] = [];
-    protected symbolList: NodeAndSymbol[] = [];
-    protected readonly toDispose = new DisposableCollection();
-    protected readonly outlineSymbolInformations: MonacoOutlineSymbolInformationNode[];
     protected cancellationSource: CancellationTokenSource;
+    protected readonly toDisposeOnClose = new DisposableCollection();
+    protected readonly toDisposeOnEditor = new DisposableCollection();
 
-    constructor(
-        @inject(OutlineViewService) protected readonly outlineViewService: OutlineViewService,
-        @inject(EditorManager) protected readonly editorManager: EditorManager) { }
+    @inject(OutlineViewService) protected readonly outlineViewService: OutlineViewService;
+    @inject(EditorManager) protected readonly editorManager: EditorManager;
 
     onStart(app: FrontendApplication): void {
-        this.outlineViewService.onDidChangeOpenState(async isOpen => {
-            this.updateOutline();
+        this.outlineViewService.onDidChangeOpenState(async open => {
+            if (open) {
+                this.toDisposeOnClose.push(this.toDisposeOnEditor);
+                this.toDisposeOnClose.push(DocumentSymbolProviderRegistry.onDidChange(
+                    debounce(() => this.updateOutline())
+                ));
+                this.toDisposeOnClose.push(this.editorManager.onCurrentEditorChanged(
+                    debounce(() => this.handleCurrentEditorChanged(), 50)
+                ));
+                this.handleCurrentEditorChanged();
+            } else {
+                this.toDisposeOnClose.dispose();
+            }
         });
-        // let's skip the initial current Editor change event, as on reload it comes before the language sevrers have started,
-        // resulting in an empty outline.
-        setTimeout(() => {
-            this.editorManager.onCurrentEditorChanged(widget => this.updateOutlineForEditor(widget));
-        }, 3000);
-
-        DocumentSymbolProviderRegistry.onDidChange(event => {
-            this.updateOutline();
-        });
-
         this.outlineViewService.onDidSelect(async node => {
             if (MonacoOutlineSymbolInformationNode.is(node) && node.parent) {
                 const uri = new URI(node.uri);
@@ -54,7 +63,6 @@ export class MonacoOutlineContribution implements FrontendApplicationContributio
                 });
             }
         });
-
         this.outlineViewService.onDidOpen(node => {
             if (MonacoOutlineSymbolInformationNode.is(node)) {
                 this.editorManager.open(new URI(node.uri), {
@@ -66,30 +74,28 @@ export class MonacoOutlineContribution implements FrontendApplicationContributio
         });
     }
 
-    protected updateOutline() {
+    protected handleCurrentEditorChanged(): void {
+        this.toDisposeOnEditor.dispose();
+        if (this.toDisposeOnClose.disposed) {
+            return;
+        }
+        this.toDisposeOnClose.push(this.toDisposeOnEditor);
         const editor = this.editorManager.currentEditor;
         if (editor) {
-            this.updateOutlineForEditor(editor);
+            const model = MonacoEditor.get(editor)!.getControl().getModel();
+            this.toDisposeOnEditor.push(model.onDidChangeContent(() => this.updateOutline()));
         }
+        this.updateOutline();
     }
 
-    protected async updateOutlineForEditor(editor: EditorWidget | undefined) {
+    protected async updateOutline(): Promise<void> {
+        const editor = this.editorManager.currentEditor;
         if (editor) {
-            const model = this.getModel(editor);
+            const model = MonacoEditor.get(editor)!.getControl().getModel();
             this.publish(await this.computeSymbolInformations(model));
         } else {
             this.publish([]);
         }
-    }
-
-    protected getModel(editor: EditorWidget): monaco.editor.IModel {
-        const monacoEditor = MonacoEditor.get(editor);
-        const model = monacoEditor!.getControl().getModel();
-        this.toDispose.dispose();
-        this.toDispose.push(model.onDidChangeContent(async ev => {
-            this.publish(await this.computeSymbolInformations(model));
-        }));
-        return model;
     }
 
     protected async computeSymbolInformations(model: monaco.editor.IModel): Promise<SymbolInformation[]> {
@@ -102,24 +108,76 @@ export class MonacoOutlineContribution implements FrontendApplicationContributio
         this.cancellationSource = new CancellationTokenSource();
         const token = this.cancellationSource.token;
         for (const documentSymbolProvider of documentSymbolProviders) {
-            const symbolInformation = await documentSymbolProvider.provideDocumentSymbols(model, token);
-            if (token.isCancellationRequested) {
+            try {
+                const symbolInformation = await documentSymbolProvider.provideDocumentSymbols(model, token);
+                if (token.isCancellationRequested) {
+                    return [];
+                }
+                if (Array.isArray(symbolInformation)) {
+                    entries.push(...symbolInformation);
+                }
+            } catch {
+                // happens if `provideDocumentSymbols` promise is rejected.
                 return [];
-            }
-            if (Array.isArray(symbolInformation)) {
-                entries.push(...symbolInformation);
             }
         }
 
         return entries;
     }
 
-    protected publish(entries: SymbolInformation[]) {
-        let outlineSymbolInformations: OutlineSymbolInformationNode[] = [];
-        this.ids = [];
-        this.symbolList = [];
-        outlineSymbolInformations = this.createTree(undefined, entries.sort(this.orderByPosition));
-        this.outlineViewService.publish(outlineSymbolInformations);
+    protected publish(symbolInformations: SymbolInformation[]): void {
+        let rangeBased = false;
+        const ids = new Map();
+        const nodesByName = symbolInformations.sort(this.orderByPosition).reduce((result, symbol) => {
+            rangeBased = rangeBased || symbol.location.range.startLineNumber !== symbol.location.range.endLineNumber;
+            const values = result.get(symbol.name) || [];
+            const node = this.createNode(symbol, ids);
+            values.push({ symbol, node });
+            result.set(symbol.name, values);
+            return result;
+        }, new Map<string, MonacoOutlineContribution.NodeAndSymbol[]>());
+
+        const roots = [];
+        for (const nodes of nodesByName.values()) {
+            for (const { node, symbol } of nodes) {
+                if (!symbol.containerName) {
+                    roots.push(node);
+                } else {
+                    const possibleParents = nodesByName.get(symbol.containerName);
+                    if (possibleParents) {
+                        const parent = possibleParents.find(possibleParent => this.parentContains(symbol, possibleParent.symbol, rangeBased));
+                        if (parent) {
+                            const parentNode = parent.node;
+                            Object.assign(node, { parent: parentNode });
+                            (parentNode.children as TreeNode[]).push(node);
+                        }
+                    }
+                }
+            }
+        }
+        if (roots.length === 0) {
+            const nodes = nodesByName.values().next().value;
+            if (nodes && !nodes[0].node.parent) {
+                this.outlineViewService.publish([nodes[0].node]);
+            } else {
+                this.outlineViewService.publish([]);
+            }
+        } else {
+            this.outlineViewService.publish(roots);
+        }
+    }
+
+    protected parentContains(symbol: SymbolInformation, parent: SymbolInformation, rangeBased: boolean): boolean {
+        const symbolRange = this.getRangeFromSymbolInformation(symbol);
+        const nodeRange = this.getRangeFromSymbolInformation(parent);
+        const sameStartLine = symbolRange.start.line === nodeRange.start.line;
+        const startColGreaterOrEqual = symbolRange.start.character >= nodeRange.start.character;
+        const startLineGreater = symbolRange.start.line > nodeRange.start.line;
+        const sameEndLine = symbolRange.end.line === nodeRange.end.line;
+        const endColSmallerOrEqual = symbolRange.end.character <= nodeRange.end.character;
+        const endLineSmaller = symbolRange.end.line < nodeRange.end.line;
+        return (((sameStartLine && startColGreaterOrEqual || startLineGreater) &&
+            (sameEndLine && endColSmallerOrEqual || endLineSmaller)) || !rangeBased);
     }
 
     protected getRangeFromSymbolInformation(symbolInformation: SymbolInformation): Range {
@@ -135,31 +193,26 @@ export class MonacoOutlineContribution implements FrontendApplicationContributio
         };
     }
 
-    protected getId(name: string, counter: number): string {
-        let uniqueId: string = name + counter;
-        if (this.ids.find(id => id === uniqueId)) {
-            uniqueId = this.getId(name, ++counter);
-        }
-        return uniqueId;
-    }
-
-    protected convertToNode(symbol: SymbolInformation, parent: NodeAndSymbol | undefined): NodeAndSymbol {
-        const id = this.getId(symbol.name, 0);
-        this.ids.push(id);
-        const node: MonacoOutlineSymbolInformationNode = {
+    protected createNode(symbol: SymbolInformation, ids: Map<string, number>): MonacoOutlineSymbolInformationNode {
+        const id = this.createId(symbol.name, ids);
+        return {
             children: [],
             id,
             iconClass: SymbolKind[symbol.kind].toString().toLowerCase(),
             name: symbol.name,
-            parent: parent ? parent.node : undefined,
+            parent: undefined,
             uri: symbol.location.uri.toString(),
             range: this.getRangeFromSymbolInformation(symbol),
             selected: false,
             expanded: this.shouldExpand(symbol)
         };
-        const symbolAndNode = { node, symbol };
-        this.symbolList.push(symbolAndNode);
-        return symbolAndNode;
+    }
+
+    protected createId(name: string, ids: Map<string, number>): string {
+        const counter = ids.get(name);
+        const index = typeof counter === 'number' ? counter + 1 : 0;
+        ids.set(name, index);
+        return name + '_' + index;
     }
 
     protected shouldExpand(symbol: SymbolInformation): boolean {
@@ -186,47 +239,11 @@ export class MonacoOutlineContribution implements FrontendApplicationContributio
         return symbol1.location.range.endColumn - symbol2.location.range.endColumn;
     }
 
-    protected createTree(parentNode: NodeAndSymbol | undefined, symbolInformationList: SymbolInformation[]): OutlineSymbolInformationNode[] {
-        const isRangeBased = symbolInformationList.find(s => s.location.range.startLineNumber !== s.location.range.endLineNumber) !== undefined;
-        const childNodes: NodeAndSymbol[] =
-            symbolInformationList
-                // filter children
-                .filter(sym => {
-                    if (parentNode) {
-                        const symRange = this.getRangeFromSymbolInformation(sym);
-                        const nodeRange = this.getRangeFromSymbolInformation(parentNode.symbol);
-                        const nodeIsContainer = sym.containerName === parentNode.symbol.name;
-                        const sameStartLine = symRange.start.line === nodeRange.start.line;
-                        const startColGreaterOrEqual = symRange.start.character >= nodeRange.start.character;
-                        const startLineGreater = symRange.start.line > nodeRange.start.line;
-                        const sameEndLine = symRange.end.line === nodeRange.end.line;
-                        const endColSmallerOrEqual = symRange.end.character <= nodeRange.end.character;
-                        const endLineSmaller = symRange.end.line < nodeRange.end.line;
-                        return nodeIsContainer &&
-                            (((sameStartLine && startColGreaterOrEqual || startLineGreater) &&
-                                (sameEndLine && endColSmallerOrEqual || endLineSmaller)) || !isRangeBased);
-                    } else {
-                        return !sym.containerName || symbolInformationList[0] === sym;
-                    }
-                })
-                // create array of children as nodes
-                .map(sym => this.convertToNode(sym, parentNode));
-        childNodes.forEach(
-            childNode =>
-                childNode.node.children = this.createTree(
-                    childNode,
-                    symbolInformationList.filter(s => childNode.symbol !== s)
-                )
-        );
-        return childNodes.map(n => n.node);
-    }
-
-    protected getSymbolInformationByNode(node: OutlineSymbolInformationNode): SymbolInformation | undefined {
-        const nodeAndSymbol = this.symbolList.find(s => s.node.id === node.id);
-        if (nodeAndSymbol) {
-            return nodeAndSymbol.symbol;
-        }
-        return undefined;
+}
+export namespace MonacoOutlineContribution {
+    export interface NodeAndSymbol {
+        node: MonacoOutlineSymbolInformationNode;
+        symbol: SymbolInformation
     }
 }
 
@@ -239,9 +256,4 @@ export namespace MonacoOutlineSymbolInformationNode {
     export function is(node: TreeNode): node is MonacoOutlineSymbolInformationNode {
         return OutlineSymbolInformationNode.is(node) && 'uri' in node && 'range' in node;
     }
-}
-
-export interface NodeAndSymbol {
-    node: OutlineSymbolInformationNode;
-    symbol: SymbolInformation
 }

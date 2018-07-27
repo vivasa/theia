@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 
 .theia-search-box {
@@ -14,7 +23,7 @@
     align-items: baseline;
     box-shadow: var(--theia-border-width) var(--theia-border-width) var(--theia-border-color0);
     line-height: var(--theia-private-horizontal-tab-height);
-    background-color: var(--theia-layout-color3);
+    background-color: var(--theia-layout-color0);
     z-index: 1;
 }
   
@@ -39,7 +48,7 @@
 
 .theia-search-button-next:hover:before {
     content: "\f107";
-    background-color: var(--theia-layout-color0);
+    background-color: var(--theia-layout-color2);
 }
   
 .theia-search-button-previous:before {
@@ -48,7 +57,7 @@
 
 .theia-search-button-previous:hover:before {
     content: "\f106";
-    background-color: var(--theia-layout-color0);
+    background-color: var(--theia-layout-color2);
 }
   
 .theia-search-button-close:before {
@@ -57,7 +66,7 @@
 
 .theia-search-button-close:hover:before {
     content: "\f00d";
-    background-color: var(--theia-layout-color0);
+    background-color: var(--theia-layout-color2);
 }
 
 .theia-non-selectable {

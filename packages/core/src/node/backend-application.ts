@@ -1,16 +1,25 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import * as http from 'http';
 import * as https from 'https';
 import * as express from 'express';
 import * as yargs from 'yargs';
 import { inject, named, injectable } from "inversify";
-import { ILogger, ContributionProvider } from '../common';
+import { ILogger, ContributionProvider, MaybePromise } from '../common';
 import { CliContribution } from './cli';
 import { Deferred } from '../common/promise-util';
 import { BackendProcess } from './backend-process';
@@ -20,7 +29,7 @@ export const BackendApplicationContribution = Symbol("BackendApplicationContribu
 export interface BackendApplicationContribution {
     initialize?(): void;
     configure?(app: express.Application): void;
-    onStart?(server: http.Server | https.Server): void;
+    onStart?(server: http.Server | https.Server): MaybePromise<void>;
 
     /**
      * Called when the backend application shuts down. Contributions must perform only synchronous operations.
@@ -43,11 +52,11 @@ export class BackendApplicationCliContribution implements CliContribution {
     certkey: string | undefined;
 
     configure(conf: yargs.Argv): void {
-        yargs.option('port', { alias: 'p', description: 'The port the backend server listens on.', type: 'number', default: defaultPort });
-        yargs.option('hostname', { description: 'The allowed hostname for connections.', type: 'string', default: defaultHost });
-        yargs.option('ssl', { description: 'Use SSL (HTTPS), cert and certkey must also be set', type: 'boolean', default: defaultSSL });
-        yargs.option('cert', { description: 'Path to SSL certificate.', type: 'string' });
-        yargs.option('certkey', { description: 'Path to SSL certificate key.', type: 'string' });
+        conf.option('port', { alias: 'p', description: 'The port the backend server listens on.', type: 'number', default: defaultPort });
+        conf.option('hostname', { description: 'The allowed hostname for connections.', type: 'string', default: defaultHost });
+        conf.option('ssl', { description: 'Use SSL (HTTPS), cert and certkey must also be set', type: 'boolean', default: defaultSSL });
+        conf.option('cert', { description: 'Path to SSL certificate.', type: 'string' });
+        conf.option('certkey', { description: 'Path to SSL certificate key.', type: 'string' });
     }
 
     setArguments(args: yargs.Arguments): void {
@@ -93,8 +102,8 @@ export class BackendApplication {
             if (contribution.initialize) {
                 try {
                     contribution.initialize();
-                } catch (err) {
-                    this.logger.error(err.toString());
+                } catch (error) {
+                    this.logger.error('Could not initialize contribution', error);
                 }
             }
         }
@@ -103,8 +112,8 @@ export class BackendApplication {
             if (contribution.configure) {
                 try {
                     contribution.configure(this.app);
-                } catch (err) {
-                    this.logger.error(err.toString());
+                } catch (error) {
+                    this.logger.error('Could not configure contribution', error);
                 }
             }
         }
@@ -115,10 +124,11 @@ export class BackendApplication {
     }
 
     async start(aPort?: number, aHostname?: string): Promise<http.Server | https.Server> {
+        const hostname = aHostname !== undefined ? aHostname : this.cliParams.hostname;
+        const port = aPort !== undefined ? aPort : this.cliParams.port;
+
         const deferred = new Deferred<http.Server | https.Server>();
         let server: http.Server | https.Server;
-        const port = aPort !== undefined ? aPort : this.cliParams.port;
-        const hostname = aHostname !== undefined ? aHostname : this.cliParams.hostname;
 
         if (this.cliParams.ssl) {
 
@@ -130,8 +140,8 @@ export class BackendApplication {
                 throw new Error("Missing --certkey option, see --help for usage");
             }
 
-            let key;
-            let cert;
+            let key: Buffer;
+            let cert: Buffer;
             try {
                 key = await fs.readFile(this.cliParams.certkey as string);
             } catch (err) {
@@ -150,6 +160,13 @@ export class BackendApplication {
             server = http.createServer(this.app);
         }
 
+        server.on('error', error => {
+            deferred.reject(error);
+            /* The backend might run in a separate process,
+             * so we defer `process.exit` to let time for logging in the parent process */
+            setTimeout(process.exit, 0, 1);
+        });
+
         server.listen(port, hostname, () => {
             const scheme = this.cliParams.ssl ? 'https' : 'http';
             this.logger.info(`Theia app listening on ${scheme}://${hostname || 'localhost'}:${server.address().port}.`);
@@ -162,22 +179,22 @@ export class BackendApplication {
         for (const contrib of this.contributionsProvider.getContributions()) {
             if (contrib.onStart) {
                 try {
-                    contrib.onStart(server);
-                } catch (err) {
-                    this.logger.error(err.toString());
+                    await contrib.onStart(server);
+                } catch (error) {
+                    this.logger.error('Could not start contribution', error);
                 }
             }
         }
         return deferred.promise;
     }
 
-    private onStop(): void {
+    protected onStop(): void {
         for (const contrib of this.contributionsProvider.getContributions()) {
             if (contrib.onStop) {
                 try {
                     contrib.onStop(this.app);
-                } catch (err) {
-                    this.logger.error(err);
+                } catch (error) {
+                    this.logger.error('Could not stop contribution', error);
                 }
             }
         }

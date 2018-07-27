@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { inject, injectable, postConstruct } from 'inversify';
 import { DisposableCollection, Event, Emitter, SelectionProvider } from '../../common';
@@ -83,9 +92,19 @@ export interface TreeModel extends Tree, TreeSelectionService, TreeExpansionServ
     selectPrevNode(type?: TreeSelection.SelectionType): void;
 
     /**
+     * Returns the previous selectable tree node.
+     */
+    getPrevSelectableNode(node?: TreeNode): SelectableTreeNode | undefined;
+
+    /**
      * Selects the next node relatively to the currently selected one. This method takes the expansion state of the tree into consideration.
      */
     selectNextNode(type?: TreeSelection.SelectionType): void;
+
+    /**
+     * Returns the next selectable tree node.
+     */
+    getNextSelectableNode(node?: TreeNode): SelectableTreeNode | undefined;
 
     /**
      * Selects the given tree node. Has no effect when the node does not exist in the tree. Discards any previous selection state.
@@ -124,7 +143,6 @@ export class TreeModelImpl implements TreeModel, SelectionProvider<ReadonlyArray
         this.toDispose.push(this.tree.onChanged(() => this.fireChanged()));
 
         this.toDispose.push(this.selectionService);
-        this.toDispose.push(this.selectionService.onSelectionChanged(() => this.fireChanged()));
 
         this.toDispose.push(this.expansionService);
         this.toDispose.push(this.expansionService.onExpansionChanged(node => {
@@ -223,22 +241,30 @@ export class TreeModelImpl implements TreeModel, SelectionProvider<ReadonlyArray
     }
 
     selectPrevNode(type: TreeSelection.SelectionType = TreeSelection.SelectionType.DEFAULT): void {
-        const node = this.selectedNodes[0];
-        const iterator = this.createBackwardIterator(node);
-        if (iterator) {
-            this.selectNextVisibleNode(iterator, type);
+        const node = this.getPrevSelectableNode();
+        if (node) {
+            this.addSelection({ node, type });
         }
+    }
+
+    getPrevSelectableNode(node: TreeNode = this.selectedNodes[0]): SelectableTreeNode | undefined {
+        const iterator = this.createBackwardIterator(node);
+        return iterator && this.doGetNextNode(iterator);
     }
 
     selectNextNode(type: TreeSelection.SelectionType = TreeSelection.SelectionType.DEFAULT): void {
-        const node = this.selectedNodes[0];
-        const iterator = this.createIterator(node);
-        if (iterator) {
-            this.selectNextVisibleNode(iterator, type);
+        const node = this.getNextSelectableNode();
+        if (node) {
+            this.addSelection({ node, type });
         }
     }
 
-    protected selectNextVisibleNode(iterator: TreeIterator, type: TreeSelection.SelectionType = TreeSelection.SelectionType.DEFAULT): void {
+    getNextSelectableNode(node: TreeNode = this.selectedNodes[0]): SelectableTreeNode | undefined {
+        const iterator = this.createIterator(node);
+        return iterator && this.doGetNextNode(iterator);
+    }
+
+    protected doGetNextNode(iterator: TreeIterator): SelectableTreeNode | undefined {
         // Skip the first item. // TODO: clean this up, and skip the first item in a different way without loading everything.
         iterator.next();
         let result = iterator.next();
@@ -247,8 +273,9 @@ export class TreeModelImpl implements TreeModel, SelectionProvider<ReadonlyArray
         }
         const node = result.value;
         if (SelectableTreeNode.isVisible(node)) {
-            this.addSelection({ node, type });
+            return node;
         }
+        return undefined;
     }
 
     protected createBackwardIterator(node: TreeNode | undefined): TreeIterator | undefined {

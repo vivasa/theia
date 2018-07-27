@@ -1,11 +1,20 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { VirtualWidget, SELECTED_CLASS, Key } from "@theia/core/lib/browser";
+import { SELECTED_CLASS, Key } from "@theia/core/lib/browser";
 import { GitFileStatus, Repository, GitFileChange } from '../common';
 import URI from "@theia/core/lib/common/uri";
 import { GitRepositoryProvider } from "./git-repository-provider";
@@ -13,9 +22,10 @@ import { LabelProvider } from "@theia/core/lib/browser/label-provider";
 import { Message } from "@phosphor/messaging";
 import { ElementExt } from "@phosphor/domutils";
 import { inject, injectable } from "inversify";
+import { ReactWidget } from "@theia/core/lib/browser/widgets/react-widget";
 
 @injectable()
-export class GitNavigableListWidget<T extends { selected?: boolean }> extends VirtualWidget {
+export abstract class GitNavigableListWidget<T extends { selected?: boolean }> extends ReactWidget {
 
     protected gitNodes: T[];
     private _scrollContainer: string;
@@ -42,13 +52,14 @@ export class GitNavigableListWidget<T extends { selected?: boolean }> extends Vi
     }
 
     protected onUpdateRequest(msg: Message): void {
+        if (!this.isAttached || !this.isVisible) {
+            return;
+        }
         super.onUpdateRequest(msg);
-
         (async () => {
             const selected = this.node.getElementsByClassName(SELECTED_CLASS)[0];
-            const scrollArea = await this.getScrollContainer();
-            if (selected && scrollArea) {
-                ElementExt.scrollIntoViewIfNeeded(scrollArea, selected);
+            if (selected) {
+                ElementExt.scrollIntoViewIfNeeded(this.node, selected);
             }
         })();
     }
@@ -86,7 +97,6 @@ export class GitNavigableListWidget<T extends { selected?: boolean }> extends Vi
         this.addKeyListener(this.node, Key.ARROW_UP, () => this.navigateUp());
         this.addKeyListener(this.node, Key.ARROW_DOWN, () => this.navigateDown());
         this.addKeyListener(this.node, Key.ENTER, () => this.handleListEnter());
-
     }
 
     protected navigateLeft(): void {

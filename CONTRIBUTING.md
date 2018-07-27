@@ -13,7 +13,7 @@ In the following some of the typical ways of contribution are described.
 
 ### Asking Questions
 
-It's totally fine to ask questions by opening an issue in the Theia Github
+It's totally fine to ask questions by opening an issue in the Theia GitHub
 repository. We will close it once it's answered and tag it with the 'question'
 label. Please check if the question has been asked before there or on [Stack
 Overflow](https://stackoverflow.com).
@@ -46,6 +46,22 @@ happy to guide you and give feedback.
 
 We follow the coding guidelines described
 [here](https://github.com/theia-ide/theia/wiki/Coding-Guidelines).
+
+## Eclipse Contributor Agreement
+
+Before your contribution can be accepted by the project team contributors must
+electronically sign the Eclipse Contributor Agreement (ECA).
+
+* http://www.eclipse.org/legal/ECA.php
+
+Commits that are provided by non-committers must have a Signed-off-by field in
+the footer indicating that the author is aware of the terms by which the
+contribution has been provided to the project. The non-committer must
+additionally have an Eclipse Foundation account and must have a signed Eclipse
+Contributor Agreement (ECA) on file.
+
+For more information, please see the Eclipse Committer Handbook:
+https://www.eclipse.org/projects/handbook/#resources-commit
 
 ## Sign your work
 

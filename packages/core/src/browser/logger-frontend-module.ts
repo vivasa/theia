@@ -1,13 +1,22 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { ContainerModule, Container } from 'inversify';
 import { ILoggerServer, loggerPath } from '../common/logger-protocol';
-import { ILogger, Logger, LoggerFactory, LoggerOptions, setRootLogger } from '../common/logger';
+import { ILogger, Logger, LoggerFactory, setRootLogger, LoggerName, rootLoggerName } from '../common/logger';
 import { LoggerWatcher } from '../common/logger-watcher';
 import { WebSocketConnectionProvider } from './messaging';
 import { FrontendApplicationContribution } from './frontend-application';
@@ -19,6 +28,7 @@ export const loggerFrontendModule = new ContainerModule(bind => {
         }
     }));
 
+    bind(LoggerName).toConstantValue(rootLoggerName);
     bind(ILogger).to(Logger).inSingletonScope().whenTargetIsDefault();
     bind(LoggerWatcher).toSelf().inSingletonScope();
     bind(ILoggerServer).toDynamicValue(ctx => {
@@ -27,11 +37,11 @@ export const loggerFrontendModule = new ContainerModule(bind => {
         return connection.createProxy<ILoggerServer>(loggerPath, loggerWatcher.getLoggerClient());
     }).inSingletonScope();
     bind(LoggerFactory).toFactory(ctx =>
-        (options?: any) => {
+        (name: string) => {
             const child = new Container({ defaultScope: 'Singleton' });
             child.parent = ctx.container;
             child.bind(ILogger).to(Logger).inTransientScope();
-            child.bind(LoggerOptions).toConstantValue(options);
+            child.bind(LoggerName).toConstantValue(name);
             return child.get(ILogger);
         }
     );

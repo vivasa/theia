@@ -1,17 +1,28 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { inject, injectable, named } from 'inversify';
-import { ContributionProvider, CommandRegistry, MenuModelRegistry, ILogger } from '../common';
+import { ContributionProvider, CommandRegistry, MenuModelRegistry, ILogger, isOSX } from '../common';
 import { MaybePromise } from '../common/types';
 import { KeybindingRegistry } from './keybinding';
 import { Widget } from "./widgets";
 import { ApplicationShell } from './shell/application-shell';
 import { ShellLayoutRestorer } from './shell/shell-layout-restorer';
+import { FrontendApplicationStateService } from './frontend-application-state';
+import { preventNavigation, parseCssTime } from './browser';
 
 /**
  * Clients can implement to get a callback for contributing widgets to a shell on start.
@@ -70,6 +81,7 @@ export class FrontendApplication {
         @inject(ContributionProvider) @named(FrontendApplicationContribution)
         protected readonly contributions: ContributionProvider<FrontendApplicationContribution>,
         @inject(ApplicationShell) protected readonly _shell: ApplicationShell,
+        @inject(FrontendApplicationStateService) protected readonly stateService: FrontendApplicationStateService
     ) { }
 
     get shell(): ApplicationShell {
@@ -86,17 +98,20 @@ export class FrontendApplication {
      * - reveal the application shell if it was hidden by a startup indicator
      */
     async start(): Promise<void> {
-        this.shell.loading = true;
         await this.startContributions();
+        this.stateService.state = 'started_contributions';
+
         const host = await this.getHost();
         this.attachShell(host);
         await new Promise(resolve => requestAnimationFrame(() => resolve()));
-        await this.layoutRestorer.initializeLayout(this, this.contributions.getContributions());
-        await this.revealShell(host);
+        this.stateService.state = 'attached_shell';
 
-        window.addEventListener('resize', () => this.shell.update());
-        document.addEventListener('keydown', event => this.keybindings.run(event), true);
-        this.shell.loading = false;
+        await this.initializeLayout();
+        this.stateService.state = 'initialized_layout';
+
+        await this.revealShell(host);
+        this.registerEventListeners();
+        this.stateService.state = 'ready';
     }
 
     /**
@@ -107,7 +122,7 @@ export class FrontendApplication {
             return Promise.resolve(document.body);
         }
         return new Promise<HTMLElement>(resolve =>
-            window.onload = () => resolve(document.body)
+            window.addEventListener('load', () => resolve(document.body), { once: true })
         );
     }
 
@@ -117,6 +132,23 @@ export class FrontendApplication {
     protected getStartupIndicator(host: HTMLElement): HTMLElement | undefined {
         const startupElements = host.getElementsByClassName('theia-preload');
         return startupElements.length === 0 ? undefined : startupElements[0] as HTMLElement;
+    }
+
+    /**
+     * Register global event listeners.
+     */
+    protected registerEventListeners(): void {
+        window.addEventListener('unload', () => {
+            this.stateService.state = 'closing_window';
+            this.layoutRestorer.storeLayout(this);
+            this.stopContributions();
+        });
+        window.addEventListener('resize', () => this.shell.update());
+        document.addEventListener('keydown', event => this.keybindings.run(event), true);
+        // Prevent forward/back navigation by scrolling in OS X
+        if (isOSX) {
+            document.body.addEventListener('wheel', preventNavigation);
+        }
     }
 
     /**
@@ -139,7 +171,7 @@ export class FrontendApplication {
                 window.requestAnimationFrame(() => {
                     startupElem.classList.add('theia-hidden');
                     const preloadStyle = window.getComputedStyle(startupElem);
-                    const transitionDuration = this.parseCssTime(preloadStyle.transitionDuration);
+                    const transitionDuration = parseCssTime(preloadStyle.transitionDuration, 0);
                     window.setTimeout(() => {
                         const parent = startupElem.parentElement;
                         if (parent) {
@@ -155,19 +187,39 @@ export class FrontendApplication {
     }
 
     /**
-     * Parse the number of milliseconds from a CSS time value.
+     * Initialize the shell layout either using the layout restorer service or, if no layout has
+     * been stored, by creating the default layout.
      */
-    private parseCssTime(time: string | null): number {
-        if (time) {
-            if (time.endsWith('ms')) {
-                return parseFloat(time.substring(0, time.length - 2));
-            } else if (time.endsWith('s')) {
-                return parseFloat(time.substring(0, time.length - 1)) * 1000;
-            } else {
-                return parseFloat(time);
+    protected async initializeLayout(): Promise<void> {
+        if (!await this.restoreLayout()) {
+            // Fallback: Create the default shell layout
+            await this.createDefaultLayout();
+        }
+        await this.shell.pendingUpdates;
+    }
+
+    /**
+     * Try to restore the shell layout from the storage service. Resolves to `true` if successful.
+     */
+    protected async restoreLayout(): Promise<boolean> {
+        try {
+            return await this.layoutRestorer.restoreLayout(this);
+        } catch (error) {
+            this.logger.error('Could not restore layout', error);
+            return false;
+        }
+    }
+
+    /**
+     * Let the frontend application contributions initialize the shell layout. Override this
+     * method in order to create an application-specific custom layout.
+     */
+    protected async createDefaultLayout(): Promise<void> {
+        for (const initializer of this.contributions.getContributions()) {
+            if (initializer.initializeLayout) {
+                await initializer.initializeLayout(this);
             }
         }
-        return 0;
     }
 
     /**
@@ -178,8 +230,8 @@ export class FrontendApplication {
             if (contribution.initialize) {
                 try {
                     contribution.initialize();
-                } catch (err) {
-                    this.logger.error(err.toString());
+                } catch (error) {
+                    this.logger.error('Could not initialize contribution', error);
                 }
             }
         }
@@ -196,24 +248,26 @@ export class FrontendApplication {
             if (contribution.onStart) {
                 try {
                     await contribution.onStart(this);
-                } catch (err) {
-                    this.logger.error(err.toString());
+                } catch (error) {
+                    this.logger.error('Could not start contribution', error);
                 }
             }
         }
+    }
 
-        window.onunload = () => {
-            this.layoutRestorer.storeLayout(this);
-            for (const contribution of this.contributions.getContributions()) {
-                if (contribution.onStop) {
-                    try {
-                        contribution.onStop(this);
-                    } catch (err) {
-                        this.logger.error(err.toString());
-                    }
+    /**
+     * Stop the frontend application contributions. This is called when the window is unloaded.
+     */
+    protected stopContributions(): void {
+        for (const contribution of this.contributions.getContributions()) {
+            if (contribution.onStop) {
+                try {
+                    contribution.onStop(this);
+                } catch (error) {
+                    this.logger.error('Could not stop contribution', error);
                 }
             }
-        };
+        }
     }
 
 }

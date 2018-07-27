@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { injectable, inject } from "inversify";
 import { MessageService, CommandRegistry } from '@theia/core';
@@ -15,6 +24,7 @@ import {
     Workspace, Languages, Commands
 } from '../common';
 import { LanguageClientFactory } from "./language-client-factory";
+import { WorkspaceService } from "@theia/workspace/lib/browser";
 
 export const LanguageClientContribution = Symbol('LanguageClientContribution');
 export interface LanguageClientContribution extends LanguageContribution {
@@ -36,6 +46,7 @@ export abstract class BaseLanguageClientContribution implements LanguageClientCo
 
     @inject(MessageService) protected readonly messageService: MessageService;
     @inject(CommandRegistry) protected readonly registry: CommandRegistry;
+    @inject(WorkspaceService) protected readonly workspaceService: WorkspaceService;
 
     constructor(
         @inject(Workspace) protected readonly workspace: Workspace,
@@ -50,11 +61,26 @@ export abstract class BaseLanguageClientContribution implements LanguageClientCo
     }
 
     waitForActivation(app: FrontendApplication): Promise<any> {
+        const activationPromises: Promise<any>[] = [];
+        const workspaceContains = this.workspaceContains;
+        if (workspaceContains.length !== 0) {
+            activationPromises.push(this.waitForItemInWorkspace());
+        }
         const documentSelector = this.documentSelector;
         if (documentSelector) {
+            activationPromises.push(this.waitForOpenTextDocument(documentSelector));
+        }
+        if (activationPromises.length !== 0) {
             return Promise.all([
                 this.workspace.ready,
-                this.waitForOpenTextDocument(documentSelector)
+                Promise.race(activationPromises.map(p => new Promise(async resolve => {
+                    try {
+                        await p;
+                        resolve();
+                    } catch (e) {
+                        console.error(e);
+                    }
+                })))
             ]);
         }
         return this.workspace.ready;
@@ -107,6 +133,10 @@ export abstract class BaseLanguageClientContribution implements LanguageClientCo
         };
     }
 
+    protected get workspaceContains(): string[] {
+        return [];
+    }
+
     protected get documentSelector(): DocumentSelector | undefined {
         return [this.id];
     }
@@ -125,19 +155,30 @@ export abstract class BaseLanguageClientContribution implements LanguageClientCo
         return [];
     }
 
+    /**
+     * Check to see if one of the paths is in the current workspace.
+     */
+    protected async waitForItemInWorkspace(): Promise<any> {
+        const doesContain = await this.workspaceService.containsSome(this.workspaceContains);
+        if (!doesContain) {
+            return new Promise(resolve => { });
+        }
+        return doesContain;
+    }
+
     // FIXME move it to the workspace
     protected waitForOpenTextDocument(selector: DocumentSelector): Promise<TextDocument> {
-        const document = this.workspace.textDocuments.filter(document =>
-            this.languages.match(selector, document)
+        const document = this.workspace.textDocuments.filter(doc =>
+            this.languages.match(selector, doc)
         )[0];
         if (document !== undefined) {
             return Promise.resolve(document);
         }
         return new Promise<TextDocument>(resolve => {
-            const disposable = this.workspace.onDidOpenTextDocument(document => {
-                if (this.languages.match(selector, document)) {
+            const disposable = this.workspace.onDidOpenTextDocument(doc => {
+                if (this.languages.match(selector, doc)) {
                     disposable.dispose();
-                    resolve(document);
+                    resolve(doc);
                 }
             });
         });

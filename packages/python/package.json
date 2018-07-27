@@ -1,10 +1,11 @@
 {
   "name": "@theia/python",
-  "version": "0.3.8",
+  "version": "0.3.13",
   "description": "Theia - Python Extension",
   "dependencies": {
-    "@theia/core": "^0.3.8",
-    "@theia/languages": "^0.3.8"
+    "@theia/core": "^0.3.13",
+    "@theia/languages": "^0.3.13",
+    "@theia/monaco": "^0.3.13"
   },
   "publishConfig": {
     "access": "public"
@@ -18,7 +19,7 @@
   "keywords": [
     "theia-extension"
   ],
-  "license": "Apache-2.0",
+  "license": "EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/theia-ide/theia.git"
@@ -28,6 +29,7 @@
   },
   "homepage": "https://github.com/theia-ide/theia",
   "files": [
+    "data",
     "lib",
     "src"
   ],
@@ -40,7 +42,7 @@
     "docs": "theiaext docs"
   },
   "devDependencies": {
-    "@theia/ext-scripts": "^0.3.8"
+    "@theia/ext-scripts": "^0.3.13"
   },
   "nyc": {
     "extends": "../../configs/nyc.json"

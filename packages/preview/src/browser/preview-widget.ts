@@ -1,20 +1,30 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { inject, injectable } from "inversify";
 import { Resource, MaybePromise } from '@theia/core';
-import { BaseWidget, Message } from '@theia/core/lib/browser';
+import { BaseWidget, Message, addEventListener} from '@theia/core/lib/browser';
 import URI from '@theia/core/lib/common/uri';
 import { Event, Emitter } from '@theia/core/lib/common';
 import { Workspace, Location, Range } from "@theia/languages/lib/common";
 import { PreviewHandler, PreviewHandlerProvider } from './preview-handler';
-import { throttle } from 'throttle-debounce';
 import { ThemeService } from '@theia/core/lib/browser/theming';
 import { EditorPreferences } from "@theia/editor/lib/browser";
+
+import throttle = require('lodash.throttle');
 
 export const PREVIEW_WIDGET_CLASS = 'theia-preview-widget';
 
@@ -41,6 +51,7 @@ export class PreviewWidget extends BaseWidget {
     constructor(
         @inject(PreviewWidgetOptions) protected readonly options: PreviewWidgetOptions,
         @inject(PreviewHandlerProvider) protected readonly previewHandlerProvider: PreviewHandlerProvider,
+        @inject(ThemeService) protected readonly themeService: ThemeService,
         @inject(Workspace) protected readonly workspace: Workspace,
         @inject(EditorPreferences) protected readonly editorPreferences: EditorPreferences,
     ) {
@@ -52,6 +63,9 @@ export class PreviewWidget extends BaseWidget {
         this.title.label = `Preview ${this.uri.path.base}`;
         this.title.caption = this.title.label;
         this.title.closable = true;
+
+        this.toDispose.push(this.onDidScrollEmitter);
+        this.toDispose.push(this.onDidDoubleClickEmitter);
 
         this.addClass(PREVIEW_WIDGET_CLASS);
         this.node.tabIndex = 0;
@@ -83,28 +97,32 @@ export class PreviewWidget extends BaseWidget {
         this.toDispose.push(this.workspace.onDidOpenTextDocument(document => updateIfAffected(document.uri)));
         this.toDispose.push(this.workspace.onDidChangeTextDocument(params => updateIfAffected(params.textDocument.uri)));
         this.toDispose.push(this.workspace.onDidCloseTextDocument(document => updateIfAffected(document.uri)));
-        this.toDispose.push(ThemeService.get().onThemeChange(() => this.update()));
-        this.startScrollSync();
-        this.startDoubleClickListener();
+        this.toDispose.push(this.themeService.onThemeChange(() => this.update()));
         this.firstUpdate = () => {
             this.revealFragment(this.uri);
         };
         this.update();
     }
 
+    protected onBeforeAttach(msg: Message): void {
+        super.onBeforeAttach(msg);
+        this.toDispose.push(this.startScrollSync());
+        this.toDispose.push(this.startDoubleClickListener());
+    }
+
     protected preventScrollNotification: boolean = false;
-    protected startScrollSync(): void {
-        this.node.addEventListener('scroll', throttle(50, (event: UIEvent) => {
+    protected startScrollSync() {
+        return addEventListener(this.node, 'scroll', throttle((event: UIEvent) => {
             if (this.preventScrollNotification) {
                 return;
             }
             const scrollTop = this.node.scrollTop;
             this.didScroll(scrollTop);
-        }));
+        }, 50));
     }
 
-    protected startDoubleClickListener(): void {
-        this.node.addEventListener('dblclick', (event: MouseEvent) => {
+    protected startDoubleClickListener() {
+        return addEventListener(this.node, 'dblclick', (event: MouseEvent) => {
             if (!(event.target instanceof HTMLElement)) {
                 return;
             }
@@ -196,7 +214,7 @@ export class PreviewWidget extends BaseWidget {
     revealForSourceLine(sourceLine: number): void {
         this.internalRevealForSourceLine(sourceLine);
     }
-    protected readonly internalRevealForSourceLine: (sourceLine: number) => void = throttle(50, (sourceLine: number) => {
+    protected readonly internalRevealForSourceLine: (sourceLine: number) => void = throttle((sourceLine: number) => {
         if (!this.previewHandler || !this.previewHandler.findElementForSourceLine) {
             return;
         }
@@ -208,7 +226,7 @@ export class PreviewWidget extends BaseWidget {
                 this.preventScrollNotification = false;
             }, 50);
         }
-    });
+    }, 50);
 
     get onDidScroll(): Event<number> {
         return this.onDidScrollEmitter.event;
@@ -247,10 +265,8 @@ export class PreviewWidget extends BaseWidget {
         if (!this.previewHandler || !this.previewHandler.getSourceLineForOffset) {
             return;
         }
-        const line = this.previewHandler.getSourceLineForOffset(this.node, offsetTop);
-        if (line) {
-            this.fireDidDoubleClickToSourceLine(line);
-        }
+        const line = this.previewHandler.getSourceLineForOffset(this.node, offsetTop) || 0;
+        this.fireDidDoubleClickToSourceLine(line);
     }
 
 }

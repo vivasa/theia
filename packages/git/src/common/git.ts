@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { ChildProcess } from 'child_process';
 import { Disposable } from '@theia/core';
@@ -29,7 +38,7 @@ export namespace Git {
         /**
          * Refinements for the `git branch` command.
          */
-        export namespace Branch {
+        export namespace BranchCommand {
 
             /**
              * Option for listing branches in a Git repository.
@@ -145,6 +154,23 @@ export namespace Git {
         }
 
         /**
+         * Further refinements for unstaging files from either from the index or from the working-tree. Alternatively, resetting both.
+         */
+        export interface Unstage {
+
+            /**
+             * What to reset; the state of the index, the working-tree, or both. If not given, `all` will be used.
+             */
+            readonly reset?: 'index' | 'working-tree' | 'all';
+
+            /**
+             * The treeish to reset to. Defaults to `HEAD`.
+             */
+            readonly treeish?: string;
+
+        }
+
+        /**
          * Options for further `git checkout` refinements.
          */
         export namespace Checkout {
@@ -152,7 +178,7 @@ export namespace Git {
             /**
              * Options for checking out branches.
              */
-            export interface Branch {
+            export interface CheckoutBranch {
 
                 /**
                  * Branch to checkout; if it refers to a branch, then that branch is checked out.
@@ -231,6 +257,25 @@ export namespace Git {
         }
 
         /**
+         * Options for the `git commit` command refinement.
+         */
+        export interface Commit {
+
+            /**
+             * If `true` replaces the tip of the current branch by creating a new commit.
+             * The recorded tree is prepared as usual, and the message from the original commit is used as the starting point, instead of an empty message,
+             * when no other message is specified. The new commit has the same parents and author as the current one. Defaults to `false`.
+             */
+            readonly amend?: boolean;
+
+            /**
+             * Adds the `Signed-off-by` line by the committer at the end of the commit log message. `false` by default.
+             */
+            readonly signOff?: boolean;
+
+        }
+
+        /**
          * Options for further refining the `git show` command.
          */
         export interface Show {
@@ -278,12 +323,24 @@ export namespace Git {
             readonly localBranch?: string;
 
             /**
-             * The name of the remote branch to push to. If not given then teh changes will be pushed to the remote branch associated with the
+             * The name of the remote branch to push to. If not given then the changes will be pushed to the remote branch associated with the
              * local branch.
              *
              * `git push <remote> <localBranch>:<remoteBranch>`
              */
             readonly remoteBranch?: string;
+
+            /**
+             * Set upstream for every branch that is up to date or successfully pushed,
+             * add upstream (tracking) reference, used by argument-less git-pull and other commands.
+             */
+            readonly setUpstream?: boolean;
+
+            /**
+             * Usually, the command refuses to update a remote ref that is not an ancestor of the local ref used to overwrite it.
+             * This flag disables these checks, and can cause the remote repository to lose commits; use it with care.
+             */
+            readonly force?: boolean;
 
         }
 
@@ -302,6 +359,11 @@ export namespace Git {
              * the default remote tracking of the currently active branch.
              */
             readonly branch?: string;
+
+            /**
+             * When true, rebase the current branch on top of the upstream branch after fetching.
+             */
+            readonly rebase?: boolean
 
         }
 
@@ -526,10 +588,11 @@ export interface Git extends Disposable {
      * Removes the given file or files among the staged files in the working clone. The invocation will be rejected if
      * any files (given with their file URIs) is not among the staged files.
      *
-     * @param repository the repository to where the staged files have to be removed from/
-     * @param uri one or multiple file URIs to unstage in the working clone.
+     * @param repository the repository to where the staged files have to be removed from.
+     * @param uri one or multiple file URIs to unstage in the working clone. If the array is empty, all the changed files will be staged.
+     * @param options optional refinements for the the unstaging operation.
      */
-    unstage(repository: Repository, uri: string | string[]): Promise<void>;
+    unstage(repository: Repository, uri: string | string[], options?: Git.Options.Unstage): Promise<void>;
 
     /**
      * Returns with the currently active branch, or `undefined` if the current branch is in detached mode.
@@ -554,9 +617,9 @@ export interface Git extends Disposable {
      * @param options further Git command refinements for the branch modification.
      */
     branch(repository: Repository, options:
-        Git.Options.Branch.Create |
-        Git.Options.Branch.Rename |
-        Git.Options.Branch.Delete): Promise<void>;
+        Git.Options.BranchCommand.Create |
+        Git.Options.BranchCommand.Rename |
+        Git.Options.BranchCommand.Delete): Promise<void>;
 
     /**
      * Switches branches or restores working tree files.
@@ -564,7 +627,7 @@ export interface Git extends Disposable {
      * @param repository the repository to where the `git checkout` has to be performed.
      * @param options further checkout options.
      */
-    checkout(repository: Repository, options: Git.Options.Checkout.Branch | Git.Options.Checkout.WorkingTreeFile): Promise<void>;
+    checkout(repository: Repository, options: Git.Options.Checkout.CheckoutBranch | Git.Options.Checkout.WorkingTreeFile): Promise<void>;
 
     /**
      * Commits the changes of all staged files in the working directory.
@@ -572,7 +635,7 @@ export interface Git extends Disposable {
      * @param repository the repository where the staged changes has to be committed.
      * @param message the optional commit message.
      */
-    commit(repository: Repository, message?: string): Promise<void>;
+    commit(repository: Repository, message?: string, options?: Git.Options.Commit): Promise<void>;
 
     /**
      * Fetches branches and/or tags (collectively, `refs`) from the repository, along with the objects necessary to complete their histories.
@@ -695,7 +758,7 @@ export namespace GitUtils {
      * `true` if the argument is an option for renaming an existing branch in the repository.
      */
     // tslint:disable-next-line:no-any
-    export function isBranchRename(arg: any | undefined): arg is Git.Options.Branch.Rename {
+    export function isBranchRename(arg: any | undefined): arg is Git.Options.BranchCommand.Rename {
         return !!arg && ('newName' in arg);
     }
 
@@ -703,7 +766,7 @@ export namespace GitUtils {
      * `true` if the argument is an option for deleting an existing branch in the repository.
      */
     // tslint:disable-next-line:no-any
-    export function isBranchDelete(arg: any | undefined): arg is Git.Options.Branch.Delete {
+    export function isBranchDelete(arg: any | undefined): arg is Git.Options.BranchCommand.Delete {
         return !!arg && ('toDelete' in arg);
     }
 
@@ -711,7 +774,7 @@ export namespace GitUtils {
      * `true` if the argument is an option for creating a new branch in the repository.
      */
     // tslint:disable-next-line:no-any
-    export function isBranchCreate(arg: any | undefined): arg is Git.Options.Branch.Create {
+    export function isBranchCreate(arg: any | undefined): arg is Git.Options.BranchCommand.Create {
         return !!arg && ('toCreate' in arg);
     }
 
@@ -719,7 +782,7 @@ export namespace GitUtils {
      * `true` if the argument is an option for listing the branches in a repository.
      */
     // tslint:disable-next-line:no-any
-    export function isBranchList(arg: any | undefined): arg is Git.Options.Branch.List {
+    export function isBranchList(arg: any | undefined): arg is Git.Options.BranchCommand.List {
         return !!arg && ('type' in arg);
     }
 
@@ -727,7 +790,7 @@ export namespace GitUtils {
      * `true` if the argument is an option for checking out a new local branch.
      */
     // tslint:disable-next-line:no-any
-    export function isBranchCheckout(arg: any | undefined): arg is Git.Options.Checkout.Branch {
+    export function isBranchCheckout(arg: any | undefined): arg is Git.Options.Checkout.CheckoutBranch {
         return !!arg && ('branch' in arg);
     }
 

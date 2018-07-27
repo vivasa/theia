@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017-2018 Ericsson and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { SearchInWorkspaceServer, SearchInWorkspaceOptions, SearchInWorkspaceResult, SearchInWorkspaceClient } from "../common/search-in-workspace-interface";
 import { ILogger } from "@theia/core";
@@ -32,7 +41,7 @@ export class RipgrepSearchInWorkspaceServer implements SearchInWorkspaceServer {
     private readonly CHARACTER_START = '^\x1b\\[0?m\x1b\\[33m';
     private readonly CHARACTER_END = '\x1b\\[0?m:';
     // Highlighted blue
-    private readonly MATCH_START = '\x1b\\[0?m\x1b\\[34m\x1b\\[1m';
+    private readonly MATCH_START = '\x1b\\[0?m\x1b\\[34m';
     private readonly MATCH_END = '\x1b\\[0?m';
 
     constructor(
@@ -44,20 +53,55 @@ export class RipgrepSearchInWorkspaceServer implements SearchInWorkspaceServer {
         this.client = client;
     }
 
+    protected getArgs(options?: SearchInWorkspaceOptions): string[] {
+        const args = ["--vimgrep", "--color=always",
+            "--colors=path:none",
+            "--colors=line:none",
+            "--colors=column:none",
+            "--colors=match:none",
+            "--colors=path:fg:red",
+            "--colors=line:fg:green",
+            "--colors=column:fg:yellow",
+            "--colors=match:fg:blue",
+            "--sort-files",
+            "--max-count=100",
+            "--max-columns=250"];
+        args.push(options && options.matchCase ? "--case-sensitive" : "--ignore-case");
+        if (options && options.matchWholeWord) {
+            args.push("--word-regexp");
+        }
+        if (options && options.includeIgnored) {
+            args.push("-uu");
+        }
+        args.push(options && options.useRegExp ? "--regexp" : "--fixed-strings");
+        return args;
+    }
+
     // Search for the string WHAT in directory ROOT.  Return the assigned search id.
     search(what: string, root: string, opts?: SearchInWorkspaceOptions): Promise<number> {
         // Start the rg process.  Use --vimgrep to get one result per
         // line, --color=always to get color control characters that
         // we'll use to parse the lines.
         const searchId = this.nextSearchId++;
+        const args = this.getArgs(opts);
+        const globs = [];
+        if (opts && opts.include) {
+            for (const include of opts.include) {
+                if (include !== "") {
+                    globs.push('--glob=**/' + include);
+                }
+            }
+        }
+        if (opts && opts.exclude) {
+            for (const exclude of opts.exclude) {
+                if (exclude !== "") {
+                    globs.push('--glob=!**/' + exclude);
+                }
+            }
+        }
         const processOptions: RawProcessOptions = {
             command: rgPath,
-            args: ["--vimgrep", "-S", "--color=always",
-                "--colors=path:fg:red",
-                "--colors=line:fg:green",
-                "--colors=column:fg:yellow",
-                "--colors=match:fg:blue",
-                "-e", what, root],
+            args: [...args, what, ...globs, root]
         };
         const process: RawProcess = this.rawProcessFactory(processOptions);
         this.ongoingSearches.set(searchId, process);

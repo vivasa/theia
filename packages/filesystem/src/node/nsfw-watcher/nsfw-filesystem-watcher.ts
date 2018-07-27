@@ -1,24 +1,35 @@
-/*
- * Copyright (C) 2017 TypeFox and others.
+/********************************************************************************
+ * Copyright (C) 2017-2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import * as fs from "fs";
-import * as nsfw from "nsfw";
+import * as nsfw from "vscode-nsfw";
 import * as paths from "path";
 import { IMinimatch, Minimatch } from "minimatch";
 import { Disposable, DisposableCollection } from '@theia/core/lib/common/disposable';
 import { FileUri } from "@theia/core/lib/node/file-uri";
 import {
-    FileChange,
     FileChangeType,
     FileSystemWatcherClient,
     FileSystemWatcherServer,
     WatchOptions
 } from '../../common/filesystem-watcher-protocol';
+import { FileChangeCollection } from "../file-change-collection";
 import { setInterval, clearInterval } from "timers";
+
+const debounce = require("lodash.debounce");
 
 // tslint:disable:no-any
 
@@ -36,9 +47,7 @@ export class NsfwFileSystemWatcherServer implements FileSystemWatcherServer {
 
     protected readonly toDispose = new DisposableCollection();
 
-    protected changes: FileChange[] = [];
-    protected readonly fireDidFilesChangedTimeout = 50;
-    protected readonly toDisposeOnFileChange = new DisposableCollection();
+    protected changes = new FileChangeCollection();
 
     protected readonly options: {
         verbose: boolean
@@ -96,7 +105,8 @@ export class NsfwFileSystemWatcherServer implements FileSystemWatcherServer {
         if (options.ignored.length > 0) {
             this.debug('Files ignored for watching', options.ignored);
         }
-        const watcher = await nsfw(fs.realpathSync(basePath), events => {
+
+        const watcher: nsfw.NSFW = await nsfw(fs.realpathSync(basePath), (events: nsfw.ChangeEvent[]) => {
             for (const event of events) {
                 if (event.action === nsfw.actions.CREATED) {
                     this.pushAdded(watcherId, paths.join(event.directory, event.file!));
@@ -165,14 +175,17 @@ export class NsfwFileSystemWatcherServer implements FileSystemWatcherServer {
         const uri = FileUri.create(path).toString();
         this.changes.push({ uri, type });
 
-        this.toDisposeOnFileChange.dispose();
-        const timer = setTimeout(() => this.fireDidFilesChanged(), this.fireDidFilesChangedTimeout);
-        this.toDisposeOnFileChange.push(Disposable.create(() => clearTimeout(timer)));
+        this.fireDidFilesChanged();
     }
 
-    protected fireDidFilesChanged(): void {
-        const changes = this.changes;
-        this.changes = [];
+    /**
+     * Fires file changes to clients.
+     * It is debounced in the case if the filesystem is spamming to avoid overwhelming clients with events.
+     */
+    protected readonly fireDidFilesChanged: () => void = debounce(() => this.doFireDidFilesChanged(), 50);
+    protected doFireDidFilesChanged(): void {
+        const changes = this.changes.values();
+        this.changes = new FileChangeCollection();
         const event = { changes };
         if (this.client) {
             this.client.onDidFilesChanged(event);

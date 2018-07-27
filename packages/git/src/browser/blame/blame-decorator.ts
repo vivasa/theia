@@ -1,14 +1,21 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { inject, injectable } from 'inversify';
-import {
-    EditorManager, EditorDecorationsService, TextEditor, EditorDecoration, EditorDecorationOptions, Range, Position, EditorDecorationStyle
-} from '@theia/editor/lib/browser';
+import { EditorManager, TextEditor, EditorDecoration, EditorDecorationOptions, Range, Position, EditorDecorationStyle } from '@theia/editor/lib/browser';
 import { GitFileBlame, Commit } from '../../common';
 import { Disposable, DisposableCollection } from '@theia/core';
 import * as moment from 'moment';
@@ -17,9 +24,6 @@ import URI from '@theia/core/lib/common/uri';
 
 @injectable()
 export class BlameDecorator implements HoverProvider {
-
-    @inject(EditorDecorationsService)
-    protected readonly editorDecorationsService: EditorDecorationsService;
 
     @inject(EditorManager)
     protected readonly editorManager: EditorManager;
@@ -81,7 +85,7 @@ export class BlameDecorator implements HoverProvider {
                 this.appliedDecorations.delete(uri);
             }));
             applications.toDispose.push(Disposable.create(() => {
-                editor.deltaDecorations({ uri, oldDecorations: that.previousDecorations, newDecorations: [] });
+                editor.deltaDecorations({ oldDecorations: that.previousDecorations, newDecorations: [] });
             }));
         }
         if (applications.highlightedSha) {
@@ -96,7 +100,7 @@ export class BlameDecorator implements HoverProvider {
         applications.previousStyles.pushAll(blameDecorations.styles);
         const newDecorations = blameDecorations.editorDecorations;
         const oldDecorations = applications.previousDecorations;
-        const appliedDecorations = editor.deltaDecorations({ uri, oldDecorations, newDecorations });
+        const appliedDecorations = editor.deltaDecorations({ oldDecorations, newDecorations });
         applications.previousDecorations.length = 0;
         applications.previousDecorations.push(...appliedDecorations);
         applications.blame = blame;
@@ -207,7 +211,7 @@ export namespace BlameDecorator {
     export const defaultGutterStyles = <CSSStyleDeclaration>{
         width: `${maxWidth}ch`,
         color: 'var(--theia-ui-font-color0)',
-        backgroundColor: 'var(--theia-ui-font-color5)',
+        backgroundColor: 'var(--theia-layout-color1)',
         height: '100%',
         margin: '0 26px -1px 0',
         display: 'inline-block',
@@ -219,7 +223,7 @@ export namespace BlameDecorator {
     });
 
     export const highlightStyle = new EditorDecorationStyle('git-blame-highlight::before', style => {
-        style.backgroundColor = 'var(--theia-ui-font-color4)';
+        style.backgroundColor = 'var(--theia-layout-color2)';
     });
 
 }

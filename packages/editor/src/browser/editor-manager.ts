@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { injectable, postConstruct, } from "inversify";
 import URI from "@theia/core/lib/common/uri";
@@ -47,6 +56,7 @@ export class EditorManager extends WidgetOpenHandler<EditorWidget> {
     protected _activeEditor: EditorWidget | undefined;
     /**
      * The active editor.
+     * If there is an active editor (one that has focus), active and current are the same.
      */
     get activeEditor(): EditorWidget | undefined {
         return this._activeEditor;
@@ -64,7 +74,8 @@ export class EditorManager extends WidgetOpenHandler<EditorWidget> {
 
     protected _currentEditor: EditorWidget | undefined;
     /**
-     * The most recently activated editor.
+     * The most recently activated editor (which might not have the focus anymore, hence it is not active).
+     * If no editor has focus, e.g. when a context menu is shown, the active editor is `undefined`, but current might be the editor that was active before the menu popped up.
      */
     get currentEditor(): EditorWidget | undefined {
         return this._currentEditor;
@@ -84,7 +95,7 @@ export class EditorManager extends WidgetOpenHandler<EditorWidget> {
         }
     }
 
-    canHandle(uri: URI, options?: WidgetOpenerOptions): number | Promise<number> {
+    canHandle(uri: URI, options?: WidgetOpenerOptions): number {
         return 100;
     }
 

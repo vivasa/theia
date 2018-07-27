@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { injectable, inject, postConstruct } from 'inversify';
 import URI from '@theia/core/lib/common/uri';
@@ -14,6 +23,7 @@ import { WindowService } from '@theia/core/lib/browser/window/window-service';
 import { FrontendApplication, FrontendApplicationContribution } from '@theia/core/lib/browser';
 import { Deferred } from '@theia/core/lib/common/promise-util';
 import { ILogger } from '@theia/core/lib/common/logger';
+import { WorkspacePreferences } from './workspace-preferences';
 
 /**
  * The workspace service.
@@ -26,6 +36,8 @@ export class WorkspaceService implements FrontendApplicationContribution {
     private readonly deferredRoot = new Deferred<FileStat | undefined>();
 
     readonly root = this.deferredRoot.promise;
+
+    private hasWorkspace: boolean = false;
 
     @inject(FileSystem)
     protected readonly fileSystem: FileSystem;
@@ -42,9 +54,12 @@ export class WorkspaceService implements FrontendApplicationContribution {
     @inject(ILogger)
     protected logger: ILogger;
 
+    @inject(WorkspacePreferences)
+    protected preferences: WorkspacePreferences;
+
     @postConstruct()
     protected async init(): Promise<void> {
-        const rootUri = await this.server.getRoot();
+        const rootUri = await this.server.getWorkspace();
         this._root = await this.toValidRoot(rootUri);
         if (this._root) {
             const uri = new URI(this._root.uri);
@@ -64,8 +79,23 @@ export class WorkspaceService implements FrontendApplicationContribution {
      */
     onStop(app: FrontendApplication): void {
         if (this._root) {
-            this.server.setRoot(this._root.uri);
+            this.server.setWorkspace(this._root.uri);
         }
+    }
+
+    async onStart() {
+        const allWorkspace = await this.recentWorkspaces();
+        if (allWorkspace.length > 0) {
+            this.hasWorkspace = true;
+        }
+    }
+
+    get hasHistory(): boolean {
+        return this.hasWorkspace;
+    }
+
+    async recentWorkspaces(): Promise<string[]> {
+        return this.server.getRecentWorkspaces();
     }
 
     /**
@@ -88,8 +118,12 @@ export class WorkspaceService implements FrontendApplicationContribution {
         const valid = await this.toValidRoot(rootUri);
         if (valid) {
             // The same window has to be preserved too (instead of opening a new one), if the workspace root is not yet available and we are setting it for the first time.
-            const preserveWindow = options ? options.preserveWindow : !(await this.root);
-            await this.server.setRoot(rootUri);
+            // Option passed as parameter has the highest priority (for api developers), then the preference, then the default.
+            const { preserveWindow } = {
+                preserveWindow: this.preferences['workspace.preserveWindow'] || !(await this.root),
+                ...options
+            };
+            await this.server.setWorkspace(rootUri);
             if (preserveWindow) {
                 this._root = valid;
             }
@@ -108,7 +142,7 @@ export class WorkspaceService implements FrontendApplicationContribution {
 
     protected async doClose(): Promise<void> {
         this._root = undefined;
-        await this.server.setRoot('');
+        await this.server.setWorkspace('');
         this.reloadWindow();
     }
 
@@ -120,7 +154,13 @@ export class WorkspaceService implements FrontendApplicationContribution {
             return undefined;
         }
         try {
+            if (uri && uri.endsWith("/")) {
+                uri = uri.slice(0, -1);
+            }
             const fileStat = await this.fileSystem.getFileStat(uri);
+            if (!fileStat) {
+                return undefined;
+            }
             if (fileStat.isDirectory) {
                 return fileStat;
             }
@@ -138,6 +178,7 @@ export class WorkspaceService implements FrontendApplicationContribution {
                 this.openNewWindow();
             } catch (error) {
                 // Fall back to reloading the current window in case the browser has blocked the new window
+                this._root = undefined;
                 this.logger.error(error.toString()).then(() => this.reloadWindow());
             }
         }
@@ -153,6 +194,25 @@ export class WorkspaceService implements FrontendApplicationContribution {
 
     protected shouldPreserveWindow(options?: WorkspaceInput): boolean {
         return options !== undefined && !!options.preserveWindow;
+    }
+
+    /**
+     * Return true if one of the paths in paths array is present in the workspace
+     * NOTE: You should always explicitly use `/` as the separator between the path segments.
+     */
+    async containsSome(paths: string[]): Promise<boolean> {
+        const workspaceRoot = await this.root;
+        if (workspaceRoot) {
+            const uri = new URI(workspaceRoot.uri);
+            for (const path of paths) {
+                const fileUri = uri.resolve(path).toString();
+                const exists = await this.fileSystem.exists(fileUri);
+                if (exists) {
+                    return exists;
+                }
+            }
+        }
+        return false;
     }
 
 }

@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import * as os from 'os';
 import * as temp from 'temp';
@@ -11,6 +20,7 @@ import * as chai from 'chai';
 import * as fs from 'fs-extra';
 import URI from "@theia/core/lib/common/uri";
 import { FileUri } from "@theia/core/lib/node";
+import { isWindows } from '@theia/core/lib/common/os';
 import { FileSystem } from "../common/filesystem";
 import { FileSystemNode } from "./node-filesystem";
 import { expectThrowsAsync } from '@theia/core/lib/common/test/expect';
@@ -38,11 +48,12 @@ describe("NodeFileSystem", function () {
 
     describe("01 #getFileStat", () => {
 
-        it("Should be rejected if not file exists under the given URI.", async () => {
+        it("Should return undefined if not file exists under the given URI.", async () => {
             const uri = root.resolve("foo.txt");
             expect(fs.existsSync(FileUri.fsPath(uri))).to.be.false;
 
-            await expectThrowsAsync(fileSystem.getFileStat(uri.toString()), Error);
+            const fileStat = await fileSystem.getFileStat(uri.toString());
+            expect(fileStat).to.be.undefined;
         });
 
         it("Should return a proper result for a file.", async () => {
@@ -51,8 +62,9 @@ describe("NodeFileSystem", function () {
             expect(fs.statSync(FileUri.fsPath(uri)).isFile()).to.be.true;
 
             const stat = await fileSystem.getFileStat(uri.toString());
-            expect(stat.isDirectory).to.be.false;
-            expect(stat.uri).to.eq(uri.toString());
+            expect(stat).to.not.be.undefined;
+            expect(stat!.isDirectory).to.be.false;
+            expect(stat!.uri).to.eq(uri.toString());
         });
 
         it("Should return a proper result for a directory.", async () => {
@@ -64,7 +76,9 @@ describe("NodeFileSystem", function () {
             expect(fs.statSync(FileUri.fsPath(uri_2)).isFile()).to.be.true;
 
             const stat = await fileSystem.getFileStat(root.toString());
-            expect(stat.children!.length).to.equal(2);
+            expect(stat).to.not.be.undefined;
+            expect(stat!.children!.length).to.equal(2);
+
         });
 
     });
@@ -161,8 +175,8 @@ describe("NodeFileSystem", function () {
             expect(fs.statSync(FileUri.fsPath(uri)).isDirectory()).to.be.true;
 
             const stat = await fileSystem.getFileStat(uri.toString());
-
-            await expectThrowsAsync(fileSystem.setContent(stat, "foo"), Error);
+            expect(stat).to.not.be.undefined;
+            await expectThrowsAsync(fileSystem.setContent(stat!, "foo"), Error);
         });
 
         it("Should be rejected with an error when trying to set the content of a file which is out-of-sync.", async () => {
@@ -179,8 +193,8 @@ describe("NodeFileSystem", function () {
             fs.writeFileSync(FileUri.fsPath(uri), "longer", { encoding: "utf8" });
             expect(fs.readFileSync(FileUri.fsPath(uri), { encoding: "utf8" }))
                 .to.be.equal("longer");
-
-            await expectThrowsAsync(fileSystem.setContent(stat, "baz"), Error);
+            expect(stat).to.not.be.undefined;
+            await expectThrowsAsync(fileSystem.setContent(stat!, "baz"), Error);
         });
 
         it("Should be rejected with an error when trying to set the content when the desired encoding cannot be handled.", async () => {
@@ -191,8 +205,9 @@ describe("NodeFileSystem", function () {
             expect(fs.readFileSync(FileUri.fsPath(uri), { encoding: "utf8" })).to.be.equal("foo");
 
             const stat = await fileSystem.getFileStat(uri.toString());
+            expect(stat).to.not.be.undefined;
+            await expectThrowsAsync(fileSystem.setContent(stat!, "baz", { encoding: "unknownEncoding" }), Error);
 
-            await expectThrowsAsync(fileSystem.setContent(stat, "baz", { encoding: "unknownEncoding" }), Error);
         });
 
         it("Should return with a stat representing the latest state of the successfully modified file.", async () => {
@@ -203,10 +218,12 @@ describe("NodeFileSystem", function () {
             expect(fs.readFileSync(FileUri.fsPath(uri), { encoding: "utf8" })).to.be.equal("foo");
 
             const currentStat = await fileSystem.getFileStat(uri.toString());
-            await fileSystem.setContent(currentStat, "baz");
+            expect(currentStat).to.not.be.undefined;
 
+            await fileSystem.setContent(currentStat!, "baz");
             expect(fs.readFileSync(FileUri.fsPath(uri), { encoding: "utf8" }))
                 .to.be.equal("baz");
+
         });
 
     });
@@ -349,7 +366,12 @@ describe("NodeFileSystem", function () {
             await expectThrowsAsync(fileSystem.move(sourceUri.toString(), targetUri.toString(), { overwrite: true }), Error);
         });
 
-        it("Moving a non-empty directory to an empty directory. Source folder and its content should be moved to the target location.", async () => {
+        it("Moving a non-empty directory to an empty directory. Source folder and its content should be moved to the target location.", async function () {
+            if (isWindows) {
+                // https://github.com/theia-ide/theia/issues/2088
+                this.skip();
+                return;
+            }
             const sourceUri = root.resolve("foo");
             const targetUri = root.resolve("bar");
             const sourceFileUri_01 = sourceUri.resolve("foo_01.txt");
@@ -625,6 +647,8 @@ describe("NodeFileSystem", function () {
             expect(fs.statSync(FileUri.fsPath(uri)).isFile()).to.be.true;
 
             const initialStat = await fileSystem.getFileStat(uri.toString());
+            expect(initialStat).to.not.be.undefined;
+
             expect(initialStat).is.an("object");
             expect(initialStat).has.property("uri").that.equals(uri.toString());
             expect(fs.statSync(FileUri.fsPath(uri)).isFile()).to.be.true;
@@ -636,7 +660,7 @@ describe("NodeFileSystem", function () {
             expect(updatedStat).is.an("object");
             expect(updatedStat).has.property("uri").that.equals(uri.toString());
             expect(fs.statSync(FileUri.fsPath(uri)).isFile()).to.be.true;
-            expect(updatedStat.lastModification).to.be.greaterThan(initialStat.lastModification);
+            expect(updatedStat.lastModification).to.be.greaterThan(initialStat!.lastModification);
         });
 
     });
@@ -722,7 +746,9 @@ describe("NodeFileSystem", function () {
     describe("#15 currentUserHome", async () => {
 
         it("should exist", async () => {
-            const actual = (await createFileSystem().getCurrentUserHome()).uri.toString();
+            const userHome = await createFileSystem().getCurrentUserHome();
+            expect(userHome).to.not.be.undefined;
+            const actual = userHome!.uri.toString();
             const expected = FileUri.create(os.homedir()).toString();
             expect(expected).to.be.equal(actual);
         });

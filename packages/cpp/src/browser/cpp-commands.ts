@@ -1,27 +1,65 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { inject, injectable } from "inversify";
-import { SelectionService } from '@theia/core/lib/common';
+import { SelectionService, UriSelection } from '@theia/core/lib/common';
 import { CommandContribution, CommandRegistry, Command } from '@theia/core/lib/common';
 import URI from "@theia/core/lib/common/uri";
 import { open, OpenerService } from '@theia/core/lib/browser';
-import { CppClientContribution } from "./cpp-client-contribution";
+import { CppLanguageClientContribution } from "./cpp-language-client-contribution";
 import { SwitchSourceHeaderRequest } from "./cpp-protocol";
 import { TextDocumentIdentifier } from "@theia/languages/lib/common";
-import { EditorManager } from "@theia/editor/lib/browser";
+import { EditorCommands, EditorManager } from "@theia/editor/lib/browser";
 import { HEADER_AND_SOURCE_FILE_EXTENSIONS } from '../common';
+import { ExecuteCommandRequest, ExecuteCommandParams } from "vscode-languageserver-protocol";
+import { CppPreferences } from "./cpp-preferences";
 
 /**
  * Switch between source/header file
  */
 export const SWITCH_SOURCE_HEADER: Command = {
     id: 'switch_source_header',
-    label: 'C++: Switch between source/header file'
+    label: 'C/C++: Switch between source/header file',
+};
+
+/**
+ * A command that is used to show the references from a CodeLens.
+ */
+export const SHOW_CLANGD_REFERENCES: Command = {
+    id: 'clangd.references'
+};
+
+export const DUMP_INCLUSIONS: Command = {
+    id: 'clangd.dumpinclusions',
+    label: 'C/C++: Dump file inclusions (Debug)'
+};
+
+export const DUMP_INCLUDED_BY: Command = {
+    id: 'clangd.dumpincludedby',
+    label: 'C/C++: Dump files including this file (Debug)'
+};
+
+export const REINDEX: Command = {
+    id: 'clangd.reindex',
+    label: 'C/C++: Reindex workspace (Debug)'
+};
+
+export const PRINT_STATS: Command = {
+    id: 'clangd.printstats',
+    label: 'C/C++: Print Index Statistics (Debug)'
 };
 
 export const FILE_OPEN_PATH = (path: string): Command => <Command>{
@@ -39,8 +77,11 @@ export function editorContainsCppFiles(editorManager: EditorManager | undefined)
 @injectable()
 export class CppCommandContribution implements CommandContribution {
 
+    @inject(CppPreferences)
+    private readonly cppPreferences: CppPreferences;
+
     constructor(
-        @inject(CppClientContribution) protected readonly clientContribution: CppClientContribution,
+        @inject(CppLanguageClientContribution) protected readonly clientContribution: CppLanguageClientContribution,
         @inject(OpenerService) protected readonly openerService: OpenerService,
         @inject(EditorManager) private editorService: EditorManager,
         protected readonly selectionService: SelectionService
@@ -52,16 +93,72 @@ export class CppCommandContribution implements CommandContribution {
             isEnabled: () => editorContainsCppFiles(this.editorService),
             execute: () => this.switchSourceHeader()
         });
+        commands.registerCommand(SHOW_CLANGD_REFERENCES, {
+            execute: (doc: TextDocumentIdentifier, pos: Position, locs: Location[]) =>
+                commands.executeCommand(EditorCommands.SHOW_REFERENCES.id, doc.uri, pos, locs)
+        });
+        commands.registerCommand(REINDEX, {
+            isEnabled: () => this.cppPreferences["cpp.experimentalCommands"],
+            execute: () => this.reindex()
+        });
+        commands.registerCommand(DUMP_INCLUSIONS, {
+            isEnabled: () => this.cppPreferences["cpp.experimentalCommands"] && editorContainsCppFiles(this.editorService),
+            execute: () => this.dumpInclusions()
+        });
+        commands.registerCommand(DUMP_INCLUDED_BY, {
+            isEnabled: () => this.cppPreferences["cpp.experimentalCommands"] && editorContainsCppFiles(this.editorService),
+            execute: () => this.dumpIncludedBy()
+        });
+        commands.registerCommand(PRINT_STATS, {
+            isEnabled: () => this.cppPreferences["cpp.experimentalCommands"],
+            execute: () => this.printStats()
+        });
     }
 
-    protected switchSourceHeader(): void {
-        const docIdentifier = TextDocumentIdentifier.create(this.selectionService.selection.uri.toString());
-        this.clientContribution.languageClient.then(languageClient => {
-            languageClient.sendRequest(SwitchSourceHeaderRequest.type, docIdentifier).then(sourceUri => {
-                if (sourceUri !== undefined) {
-                    open(this.openerService, new URI(sourceUri.toString()));
-                }
-            });
-        });
+    protected async switchSourceHeader(): Promise<void> {
+        const uri = UriSelection.getUri(this.selectionService.selection);
+        if (!uri) {
+            return;
+        }
+        const docIdentifier = TextDocumentIdentifier.create(uri.toString());
+        const languageClient = await this.clientContribution.languageClient;
+        const sourceUri: string | undefined = await languageClient.sendRequest(SwitchSourceHeaderRequest.type, docIdentifier);
+        if (sourceUri !== undefined) {
+            open(this.openerService, new URI(sourceUri.toString()));
+        }
+    }
+
+    private async dumpInclusions(): Promise<void> {
+        const uri = UriSelection.getUri(this.selectionService.selection);
+        if (!uri) {
+            return;
+        }
+        const docIdentifier = TextDocumentIdentifier.create(uri.toString());
+        const params: ExecuteCommandParams = { command: DUMP_INCLUSIONS.id, arguments: [docIdentifier] };
+        const languageClient = await this.clientContribution.languageClient;
+        languageClient.sendRequest(ExecuteCommandRequest.type, params);
+    }
+
+    private async dumpIncludedBy(): Promise<void> {
+        const uri = UriSelection.getUri(this.selectionService.selection);
+        if (!uri) {
+            return;
+        }
+        const docIdentifier = TextDocumentIdentifier.create(uri.toString());
+        const params: ExecuteCommandParams = { command: DUMP_INCLUDED_BY.id, arguments: [docIdentifier] };
+        const languageClient = await this.clientContribution.languageClient;
+        languageClient.sendRequest(ExecuteCommandRequest.type, params);
+    }
+
+    private async reindex(): Promise<void> {
+        const params: ExecuteCommandParams = { command: REINDEX.id };
+        const languageClient = await this.clientContribution.languageClient;
+        languageClient.sendRequest(ExecuteCommandRequest.type, params);
+    }
+
+    private async printStats(): Promise<void> {
+        const params: ExecuteCommandParams = { command: PRINT_STATS.id };
+        const languageClient = await this.clientContribution.languageClient;
+        languageClient.sendRequest(ExecuteCommandRequest.type, params);
     }
 }

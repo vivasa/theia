@@ -1,19 +1,17 @@
 {
   "name": "@theia/preview",
-  "version": "0.3.8",
+  "version": "0.3.13",
   "description": "Theia - Preview Extension",
   "dependencies": {
-    "@theia/core": "^0.3.8",
-    "@theia/editor": "^0.3.8",
-    "@theia/languages": "^0.3.8",
+    "@theia/core": "^0.3.13",
+    "@theia/editor": "^0.3.13",
+    "@theia/languages": "^0.3.13",
     "@types/highlight.js": "^9.12.2",
     "@types/markdown-it": "^0.0.4",
     "@types/markdown-it-anchor": "^4.0.1",
-    "@types/throttle-debounce": "^1.0.0",
     "highlight.js": "^9.12.0",
     "markdown-it": "^8.4.0",
-    "markdown-it-anchor": "^4.0.0",
-    "throttle-debounce": "^1.0.1"
+    "markdown-it-anchor": "^5.0.0"
   },
   "publishConfig": {
     "access": "public"
@@ -26,7 +24,7 @@
   "keywords": [
     "theia-extension"
   ],
-  "license": "Apache-2.0",
+  "license": "EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/theia-ide/theia.git"
@@ -48,7 +46,7 @@
     "docs": "theiaext docs"
   },
   "devDependencies": {
-    "@theia/ext-scripts": "^0.3.8"
+    "@theia/ext-scripts": "^0.3.13"
   },
   "nyc": {
     "extends": "../../configs/nyc.json"

@@ -1,9 +1,18 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import * as path from 'path';
 import * as upath from 'upath';
@@ -698,6 +707,27 @@ describe('git', async function () {
             // Filter for a non-existing file.
             await expectDiff('HEAD~4', 'HEAD~3', [], 'does not exist');
             await expectDiff('HEAD~4', 'HEAD', [], 'does not exist');
+        });
+
+    });
+
+    describe('branch', () => {
+
+        it('should list the branch in chronological order', async () => {
+            const root = track.mkdirSync('branch-order');
+            const localUri = FileUri.create(root).toString();
+            const repository = { localUri };
+            const git = await createGit();
+
+            await createTestRepository(root);
+            await git.exec(repository, ['checkout', '-b', 'a']);
+            await git.exec(repository, ['checkout', 'master']);
+            await git.exec(repository, ['checkout', '-b', 'b']);
+            await git.exec(repository, ['checkout', 'master']);
+            await git.exec(repository, ['checkout', '-b', 'c']);
+            await git.exec(repository, ['checkout', 'master']);
+
+            expect((await git.branch(repository, { type: 'local' })).map(b => b.nameWithoutRemote)).to.be.deep.equal(['master', 'c', 'b', 'a']);
         });
 
     });

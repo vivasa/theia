@@ -1,30 +1,38 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the 'License'); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
-import { injectable, inject } from "inversify";
-import { EditorDecorationsService, OverviewRulerLane, EditorDecoration, EditorDecorationOptions } from "@theia/editor/lib/browser";
-import { MergeConflicts } from "./merge-conflicts-provider";
+import { injectable } from "inversify";
+import { OverviewRulerLane, EditorDecoration, EditorDecorationOptions, EditorDecorator } from "@theia/editor/lib/browser";
+import { MergeConflictsUpdate } from "./merge-conflicts-provider";
 
 @injectable()
-export class MergeConflictsDecorations {
+export class MergeConflictsDecorations extends EditorDecorator {
 
-    constructor(
-        @inject(EditorDecorationsService) protected readonly decorationsService: EditorDecorationsService,
-    ) { }
-
-    decorate(params: MergeConflicts): void {
-        const uri = params.uri;
+    decorate(params: MergeConflictsUpdate): void {
         const mergeConflicts = params.mergeConflicts;
         const newDecorations: EditorDecoration[] = [];
         for (const mergeConflict of mergeConflicts) {
             newDecorations.push({ range: mergeConflict.current.marker!, options: MergeConflictsDecorations.Options.CurrentMarker });
-            newDecorations.push({ range: mergeConflict.current.content!, options: MergeConflictsDecorations.Options.CurrentContent });
+            if (mergeConflict.current.content) {
+                newDecorations.push({ range: mergeConflict.current.content!, options: MergeConflictsDecorations.Options.CurrentContent });
+            }
             newDecorations.push({ range: mergeConflict.incoming.marker!, options: MergeConflictsDecorations.Options.IncomingMarker });
-            newDecorations.push({ range: mergeConflict.incoming.content!, options: MergeConflictsDecorations.Options.IncomingContent });
+            if (mergeConflict.incoming.content) {
+                newDecorations.push({ range: mergeConflict.incoming.content!, options: MergeConflictsDecorations.Options.IncomingContent });
+            }
             for (const base of mergeConflict.bases) {
                 if (base.marker) {
                     newDecorations.push({ range: base.marker, options: MergeConflictsDecorations.Options.BaseMarker });
@@ -34,12 +42,7 @@ export class MergeConflictsDecorations {
                 }
             }
         }
-        this.setDecorations(uri, newDecorations);
-    }
-
-    protected setDecorations(uri: string, newDecorations: EditorDecoration[]) {
-        const kind = 'merge-conflicts';
-        this.decorationsService.setDecorations({ uri, kind, newDecorations });
+        this.setDecorations(params.editor, newDecorations);
     }
 
 }

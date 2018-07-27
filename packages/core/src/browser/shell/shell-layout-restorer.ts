@@ -1,13 +1,22 @@
-/*
+/********************************************************************************
  * Copyright (C) 2017 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { injectable, inject } from 'inversify';
 import { Widget } from '@phosphor/widgets';
-import { FrontendApplication, FrontendApplicationContribution } from '../frontend-application';
+import { FrontendApplication } from '../frontend-application';
 import { WidgetManager, WidgetConstructionOptions } from '../widget-manager';
 import { StorageService } from '../storage-service';
 import { ILogger } from '../../common/logger';
@@ -65,29 +74,6 @@ export class ShellLayoutRestorer implements CommandContribution {
             });
     }
 
-    async initializeLayout(app: FrontendApplication, contributions: FrontendApplicationContribution[]): Promise<void> {
-        try {
-            // Try to restore the shell layout from the storage service
-            const serializedLayoutData = await this.storageService.getData<string>(this.storageKey);
-            if (serializedLayoutData !== undefined) {
-                const layoutData = await this.inflate(serializedLayoutData);
-                app.shell.setLayoutData(layoutData);
-                await app.shell.pendingUpdates;
-                return;
-            }
-        } catch (e) {
-            this.logger.debug(e);
-        }
-
-        // Fallback: Let the frontend application contributions initialize the layout
-        for (const initializer of contributions) {
-            if (initializer.initializeLayout) {
-                await initializer.initializeLayout(app);
-            }
-        }
-        await app.shell.pendingUpdates;
-    }
-
     storeLayout(app: FrontendApplication): void {
         if (this.shouldStoreLayout) {
             try {
@@ -96,9 +82,19 @@ export class ShellLayoutRestorer implements CommandContribution {
                 this.storageService.setData(this.storageKey, serializedLayoutData);
             } catch (error) {
                 this.storageService.setData(this.storageKey, undefined);
-                this.logger.error(`Error during serialization of layout data: ${error}`);
+                this.logger.error('Error during serialization of layout data', error);
             }
         }
+    }
+
+    async restoreLayout(app: FrontendApplication): Promise<boolean> {
+        const serializedLayoutData = await this.storageService.getData<string>(this.storageKey);
+        if (serializedLayoutData === undefined) {
+            return false;
+        }
+        const layoutData = await this.inflate(serializedLayoutData);
+        await app.shell.setLayoutData(layoutData);
+        return true;
     }
 
     protected isWidgetProperty(propertyName: string) {
@@ -165,6 +161,7 @@ export class ShellLayoutRestorer implements CommandContribution {
                 }
                 return widgets;
             } else if (value && typeof value === 'object' && !Array.isArray(value)) {
+                // tslint:disable-next-line:no-any
                 const copy: any = {};
                 for (const p in value) {
                     if (this.isWidgetProperty(p)) {

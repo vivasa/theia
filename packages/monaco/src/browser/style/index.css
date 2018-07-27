@@ -7,16 +7,16 @@
 
 .monaco-editor {
     padding-bottom: 5.6px;
-    font-family: monospace !important;
+    font-family: var(--theia-ui-font-family);
     font-size: inherit !important;
 }
 
 .monaco-editor, .monaco-editor-background {
-    background: var(--theia-layout-color3);
+    background: var(--theia-layout-color0);
 }
 
 .monaco-editor .margin {
-    background: var(--theia-layout-color3);
+    background: var(--theia-layout-color0);
 }
 
 .monaco-keybinding-key {
@@ -30,13 +30,29 @@
     z-index: 0;
 }
 
-.quick-open-widget .quick-open-tree .quick-open-entry .quick-open-entry-icon, 
-.vs-dark .quick-open-widget .quick-open-tree .quick-open-entry .quick-open-entry-icon.file-icon {
-    background-image: none;
-    margin-bottom: 4px;
+/*
+ * we need to disable the background image when using font awesome icons
+ */
+.monaco-quick-open-widget .quick-open-tree .quick-open-entry .quick-open-entry-icon,
+.vs-dark .monaco-quick-open-widget .quick-open-tree .quick-open-entry .quick-open-entry-icon.fa {
+    background-image: none;    
     margin-right: 0px;
 }
 
+/*
+ * we need to disable the background image when using file-icons
+ */
+.monaco-quick-open-widget .quick-open-tree .quick-open-entry .quick-open-entry-icon,
+.vs-dark .monaco-quick-open-widget .quick-open-tree .quick-open-entry .quick-open-entry-icon.file-icon {
+    background-image: none;    
+    margin-right: 0px;
+}
+
+
 .monaco-tree-row  {
     padding-right: 11px;
+}
+
+.quick-open-entry .quick-open-row .monaco-icon-label .monaco-icon-label-description-container .monaco-highlighted-label .highlight {
+    color: var(--theia-accent-color1);
 }

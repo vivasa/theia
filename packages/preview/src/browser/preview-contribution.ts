@@ -1,24 +1,32 @@
-/*
+/********************************************************************************
  * Copyright (C) 2018 TypeFox and others.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
- */
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0 which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the Eclipse
+ * Public License v. 2.0 are satisfied: GNU General Public License, version 2
+ * with the GNU Classpath Exception which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ ********************************************************************************/
 
 import { injectable, inject } from "inversify";
 import { Widget } from "@phosphor/widgets";
 import { FrontendApplicationContribution, WidgetOpenerOptions, WidgetOpenHandler } from "@theia/core/lib/browser";
 import { EditorManager, TextEditor, EditorWidget, EditorContextMenu } from '@theia/editor/lib/browser';
-import {
-    ResourceProvider, DisposableCollection, CommandContribution, CommandRegistry, Command, MenuContribution, MenuModelRegistry,
-    CommandHandler, Disposable, MessageService
-} from "@theia/core/lib/common";
+import { DisposableCollection, CommandContribution, CommandRegistry, Command, MenuContribution, MenuModelRegistry, CommandHandler, Disposable } from "@theia/core/lib/common";
 import URI from '@theia/core/lib/common/uri';
 import { Position } from 'vscode-languageserver-types';
 import { PreviewWidget } from './preview-widget';
 import { PreviewHandlerProvider, } from './preview-handler';
 import { PreviewUri } from "./preview-uri";
 import { PreviewPreferences } from './preview-preferences';
+
+import debounce = require('lodash.debounce');
 
 export namespace PreviewCommands {
     export const OPEN: Command = {
@@ -43,16 +51,10 @@ export class PreviewContribution extends WidgetOpenHandler<PreviewWidget> implem
     @inject(PreviewHandlerProvider)
     protected readonly previewHandlerProvider: PreviewHandlerProvider;
 
-    @inject(ResourceProvider)
-    protected readonly resourceProvider: ResourceProvider;
-
-    @inject(MessageService)
-    protected readonly messageService: MessageService;
-
     @inject(PreviewPreferences)
     protected readonly preferences: PreviewPreferences;
 
-    protected readonly syncronizedUris = new Set<string>();
+    protected readonly synchronizedUris = new Set<string>();
 
     protected readonly defaultOpenFromEditorOptions: PreviewOpenerOptions = {
         widgetOptions: { area: 'main', mode: 'split-right' },
@@ -90,7 +92,7 @@ export class PreviewContribution extends WidgetOpenHandler<PreviewWidget> implem
         if (!previewWidget || !editorWidget || !uri) {
             return;
         }
-        if (this.syncronizedUris.has(uri)) {
+        if (this.synchronizedUris.has(uri)) {
             return;
         }
         const syncDisposables = new DisposableCollection();
@@ -98,11 +100,11 @@ export class PreviewContribution extends WidgetOpenHandler<PreviewWidget> implem
         editorWidget.disposed.connect(() => syncDisposables.dispose());
 
         const editor = editorWidget.editor;
-        syncDisposables.push(editor.onCursorPositionChanged(position => this.revealSourceLineInPreview(previewWidget!, position)));
+        syncDisposables.push(editor.onCursorPositionChanged(debounce(position => this.revealSourceLineInPreview(previewWidget!, position)), 100));
         syncDisposables.push(this.synchronizeScrollToEditor(previewWidget, editor));
 
-        this.syncronizedUris.add(uri);
-        syncDisposables.push(Disposable.create(() => this.syncronizedUris.delete(uri)));
+        this.synchronizedUris.add(uri);
+        syncDisposables.push(Disposable.create(() => this.synchronizedUris.delete(uri)));
     }
 
     protected revealSourceLineInPreview(previewWidget: PreviewWidget, position: Position): void {
@@ -135,15 +137,16 @@ export class PreviewContribution extends WidgetOpenHandler<PreviewWidget> implem
             });
             editor.revealPosition(location.range.start);
             editor.selection = location.range;
+            previewWidget.revealForSourceLine(location.range.start.line);
         });
         previewWidget.disposed.connect(() => disposable.dispose());
     }
 
-    async canHandle(uri: URI): Promise<number> {
+    canHandle(uri: URI): number {
         if (!this.previewHandlerProvider.canHandle(uri)) {
             return 0;
         }
-        const editorPriority = await this.editorManager.canHandle(uri);
+        const editorPriority = this.editorManager.canHandle(uri);
         if (editorPriority === 0) {
             return 200;
         }
